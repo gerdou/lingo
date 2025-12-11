@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 func init() {
@@ -353,6 +352,7 @@ func NewGemini3Ultra() *Gemini3Ultra {
 // ============================================================================
 
 // googleClient implements the Provider interface for Google AI (Gemini)
+// Uses the new Google GenAI SDK (google.golang.org/genai)
 type googleClient struct {
 	client      *genai.Client
 	timeout     time.Duration
@@ -360,14 +360,17 @@ type googleClient struct {
 	rateLimiter *rateLimiter
 }
 
-// newGoogleClient creates a new Google AI client using the official Generative AI SDK
+// newGoogleClient creates a new Google AI client using the Google GenAI SDK
 func newGoogleClient(config *GoogleConfig, logger Logger) (*googleClient, error) {
 	if config.APIKey == "" {
 		return nil, fmt.Errorf("google API key is required")
 	}
 
 	ctx := context.Background()
-	client, err := genai.NewClient(ctx, option.WithAPIKey(config.APIKey))
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey:  config.APIKey,
+		Backend: genai.BackendGeminiAPI,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Google AI client: %w", err)
 	}
@@ -385,6 +388,40 @@ func newGoogleClient(config *GoogleConfig, logger Logger) (*googleClient, error)
 	}, nil
 }
 
+// getGoogleOptions extracts googleOptions from any model type
+func getGoogleOptions(model Model) *googleOptions {
+	switch m := model.(type) {
+	case *Gemini25Pro:
+		return &m.googleOptions
+	case *Gemini25Flash:
+		return &m.googleOptions
+	case *Gemini20Flash:
+		return &m.googleOptions
+	case *Gemini20FlashLite:
+		return &m.googleOptions
+	case *Gemini15Pro:
+		return &m.googleOptions
+	case *Gemini15Flash:
+		return &m.googleOptions
+	case *Gemini15Flash8b:
+		return &m.googleOptions
+	case *Gemini20FlashExp:
+		return &m.googleOptions
+	case *Gemini20FlashThinking:
+		return &m.googleOptions
+	case *Gemini20ProExp:
+		return &m.googleOptions
+	case *Gemini3Pro:
+		return &m.googleOptions
+	case *Gemini3Flash:
+		return &m.googleOptions
+	case *Gemini3Ultra:
+		return &m.googleOptions
+	default:
+		return nil
+	}
+}
+
 // Generate generates text using Google's Gemini API
 func (c *googleClient) Generate(ctx context.Context, model Model, prompt string) (*GenerationResponse, error) {
 	// Verify model is for Google
@@ -396,245 +433,42 @@ func (c *googleClient) Generate(ctx context.Context, model Model, prompt string)
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Get the generative model
-	genModel := c.client.GenerativeModel(model.ModelName())
+	// Get model options
+	opts := getGoogleOptions(model)
+	if opts == nil {
+		return nil, fmt.Errorf("unsupported Google model type: %T", model)
+	}
 
-	// Apply options based on model type
-	switch m := model.(type) {
-	case *Gemini25Pro:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini25Flash:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini20Flash:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini20FlashLite:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini15Pro:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini15Flash:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini15Flash8b:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini20FlashExp:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini20FlashThinking:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini20ProExp:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini3Pro:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini3Flash:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
-	case *Gemini3Ultra:
-		if m.temperature > 0 {
-			genModel.SetTemperature(float32(m.temperature))
-		}
-		if m.maxTokens > 0 {
-			genModel.SetMaxOutputTokens(int32(m.maxTokens))
-		}
-		if m.topP > 0 {
-			genModel.SetTopP(float32(m.topP))
-		}
-		if m.topK > 0 {
-			genModel.SetTopK(int32(m.topK))
-		}
-		if m.systemPrompt != "" {
-			genModel.SystemInstruction = &genai.Content{
-				Parts: []genai.Part{genai.Text(m.systemPrompt)},
-			}
-		}
+	// Build generation config
+	config := &genai.GenerateContentConfig{}
+
+	if opts.temperature > 0 {
+		temp := float32(opts.temperature)
+		config.Temperature = &temp
+	}
+	if opts.maxTokens > 0 {
+		config.MaxOutputTokens = int32(opts.maxTokens)
+	}
+	if opts.topP > 0 {
+		topP := float32(opts.topP)
+		config.TopP = &topP
+	}
+	if opts.topK > 0 {
+		topK := float32(opts.topK)
+		config.TopK = &topK
+	}
+	if opts.systemPrompt != "" {
+		config.SystemInstruction = &genai.Content{
+			Parts: []*genai.Part{{Text: opts.systemPrompt}},
+		}
+	}
+
+	// Build content
+	contents := []*genai.Content{
+		{
+			Role:  "user",
+			Parts: []*genai.Part{{Text: prompt}},
+		},
 	}
 
 	c.logger.Debug().
@@ -645,7 +479,7 @@ func (c *googleClient) Generate(ctx context.Context, model Model, prompt string)
 	var resp *genai.GenerateContentResponse
 	err := c.rateLimiter.Execute(ctx, func() error {
 		var reqErr error
-		resp, reqErr = genModel.GenerateContent(ctx, genai.Text(prompt))
+		resp, reqErr = c.client.Models.GenerateContent(ctx, model.ModelName(), contents, config)
 		return reqErr
 	})
 	if err != nil {
@@ -669,8 +503,8 @@ func (c *googleClient) Generate(ctx context.Context, model Model, prompt string)
 	// Extract text from parts
 	var text string
 	for _, part := range candidate.Content.Parts {
-		if textPart, ok := part.(genai.Text); ok {
-			text += string(textPart)
+		if part.Text != "" {
+			text += part.Text
 		}
 	}
 
@@ -688,8 +522,8 @@ func (c *googleClient) Generate(ctx context.Context, model Model, prompt string)
 
 	// Determine finish reason
 	finishReason := "stop"
-	if candidate.FinishReason != genai.FinishReasonUnspecified {
-		finishReason = candidate.FinishReason.String()
+	if candidate.FinishReason != "" {
+		finishReason = string(candidate.FinishReason)
 	}
 
 	// Build response
@@ -723,10 +557,18 @@ func (c *googleClient) Health(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	genModel := c.client.GenerativeModel("gemini-2.0-flash-lite")
-	genModel.SetMaxOutputTokens(5)
+	config := &genai.GenerateContentConfig{
+		MaxOutputTokens: 5,
+	}
 
-	_, err := genModel.GenerateContent(ctx, genai.Text("Hello"))
+	contents := []*genai.Content{
+		{
+			Role:  "user",
+			Parts: []*genai.Part{{Text: "Hello"}},
+		},
+	}
+
+	_, err := c.client.Models.GenerateContent(ctx, "gemini-2.0-flash-lite", contents, config)
 	if err != nil {
 		return fmt.Errorf("google AI health check failed: %w", err)
 	}
@@ -736,8 +578,6 @@ func (c *googleClient) Health(ctx context.Context) error {
 
 // Close closes the Google AI client
 func (c *googleClient) Close() error {
-	if c.client != nil {
-		return c.client.Close()
-	}
+	// The new SDK client doesn't require explicit closing
 	return nil
 }
