@@ -1,6 +1,6 @@
 # Lingo
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/vahid-haghighat/lingo.svg)](https://pkg.go.dev/github.com/vahid-haghighat/lingo)
+[![Go Reference](https://pkg.go.dev/badge/github.com/gerdou/lingo.svg)](https://pkg.go.dev/github.com/gerdou/lingo)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A unified Go gateway for multiple LLM providers. Lingo provides a consistent interface to interact with various Large Language Model APIs including OpenAI, Anthropic, Google Gemini, AWS Bedrock, Perplexity, and Ollama.
@@ -28,7 +28,7 @@ A unified Go gateway for multiple LLM providers. Lingo provides a consistent int
 ## Installation
 
 ```bash
-go get github.com/vahid-haghighat/lingo
+go get github.com/gerdou/lingo
 ```
 
 ## Quick Start
@@ -41,7 +41,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/vahid-haghighat/lingo"
+    "github.com/gerdou/lingo"
 )
 
 func main() {

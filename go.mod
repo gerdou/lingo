@@ -1,4 +1,4 @@
-module github.com/vahid-haghighat/lingo
+module github.com/gerdou/lingo
 
 go 1.25
 

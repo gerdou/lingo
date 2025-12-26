@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vahid-haghighat/lingo/internal/perplexity"
+	"github.com/gerdou/lingo/internal/perplexity"
 )
 
 func init() {
