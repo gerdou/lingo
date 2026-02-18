@@ -50,10 +50,11 @@ type perplexityOptions struct {
 	topP                   float64
 	topK                   int
 	systemPrompt           string
-	searchRecencyFilter    string   // "hour", "day", "week", "month"
-	searchDomainFilter     []string // Limit search to specific domains
+	searchRecencyFilter    string         // "hour", "day", "week", "month"
+	searchDomainFilter     []string       // Limit search to specific domains
 	returnImages           bool
 	returnRelatedQuestions bool
+	responseFormat         map[string]any // JSON Schema for structured outputs
 }
 
 // ============================================================================
@@ -80,6 +81,13 @@ func (m *Sonar) WithSearchDomainFilter(domains []string) *Sonar {
 func (m *Sonar) WithReturnImages(b bool) *Sonar           { m.returnImages = b; return m }
 func (m *Sonar) WithReturnRelatedQuestions(b bool) *Sonar { m.returnRelatedQuestions = b; return m }
 
+// WithResponseFormat sets a JSON Schema for structured output.
+// The schema must be a valid JSON Schema object (no recursive schemas or unconstrained dicts).
+func (m *Sonar) WithResponseFormat(schema map[string]any) *Sonar {
+	m.responseFormat = schema
+	return m
+}
+
 // NewSonar creates a new Sonar model with default options
 func NewSonar() *Sonar {
 	return &Sonar{perplexityOptions{maxTokens: 4096, temperature: 0.2}}
@@ -105,6 +113,13 @@ func (m *SonarPro) WithSearchDomainFilter(domains []string) *SonarPro {
 func (m *SonarPro) WithReturnImages(b bool) *SonarPro { m.returnImages = b; return m }
 func (m *SonarPro) WithReturnRelatedQuestions(b bool) *SonarPro {
 	m.returnRelatedQuestions = b
+	return m
+}
+
+// WithResponseFormat sets a JSON Schema for structured output.
+// The schema must be a valid JSON Schema object (no recursive schemas or unconstrained dicts).
+func (m *SonarPro) WithResponseFormat(schema map[string]any) *SonarPro {
+	m.responseFormat = schema
 	return m
 }
 
@@ -136,6 +151,14 @@ func (m *SonarReasoning) WithSearchDomainFilter(domains []string) *SonarReasonin
 func (m *SonarReasoning) WithReturnImages(b bool) *SonarReasoning { m.returnImages = b; return m }
 func (m *SonarReasoning) WithReturnRelatedQuestions(b bool) *SonarReasoning {
 	m.returnRelatedQuestions = b
+	return m
+}
+
+// WithResponseFormat sets a JSON Schema for structured output.
+// The schema must be a valid JSON Schema object (no recursive schemas or unconstrained dicts).
+// Note: responses from reasoning models will include a <think> section before the structured output.
+func (m *SonarReasoning) WithResponseFormat(schema map[string]any) *SonarReasoning {
+	m.responseFormat = schema
 	return m
 }
 
@@ -176,6 +199,14 @@ func (m *SonarReasoningPro) WithReturnRelatedQuestions(b bool) *SonarReasoningPr
 	return m
 }
 
+// WithResponseFormat sets a JSON Schema for structured output.
+// The schema must be a valid JSON Schema object (no recursive schemas or unconstrained dicts).
+// Note: responses from reasoning models will include a <think> section before the structured output.
+func (m *SonarReasoningPro) WithResponseFormat(schema map[string]any) *SonarReasoningPro {
+	m.responseFormat = schema
+	return m
+}
+
 // NewSonarReasoningPro creates a new Sonar Reasoning Pro model with default options
 func NewSonarReasoningPro() *SonarReasoningPro {
 	return &SonarReasoningPro{perplexityOptions{maxTokens: 8192, temperature: 0.2}}
@@ -210,6 +241,13 @@ func (m *SonarDeepResearch) WithSearchDomainFilter(domains []string) *SonarDeepR
 func (m *SonarDeepResearch) WithReturnImages(b bool) *SonarDeepResearch { m.returnImages = b; return m }
 func (m *SonarDeepResearch) WithReturnRelatedQuestions(b bool) *SonarDeepResearch {
 	m.returnRelatedQuestions = b
+	return m
+}
+
+// WithResponseFormat sets a JSON Schema for structured output.
+// The schema must be a valid JSON Schema object (no recursive schemas or unconstrained dicts).
+func (m *SonarDeepResearch) WithResponseFormat(schema map[string]any) *SonarDeepResearch {
+	m.responseFormat = schema
 	return m
 }
 
@@ -314,6 +352,12 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		}
 		req.ReturnImages = m.returnImages
 		req.ReturnRelatedQuestions = m.returnRelatedQuestions
+		if len(m.responseFormat) > 0 {
+			req.ResponseFormat = &perplexity.ResponseFormat{
+				Type:       "json_schema",
+				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
+			}
+		}
 
 	case *SonarPro:
 		if m.maxTokens > 0 {
@@ -336,6 +380,12 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		}
 		req.ReturnImages = m.returnImages
 		req.ReturnRelatedQuestions = m.returnRelatedQuestions
+		if len(m.responseFormat) > 0 {
+			req.ResponseFormat = &perplexity.ResponseFormat{
+				Type:       "json_schema",
+				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
+			}
+		}
 
 	case *SonarReasoning:
 		if m.maxTokens > 0 {
@@ -358,6 +408,12 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		}
 		req.ReturnImages = m.returnImages
 		req.ReturnRelatedQuestions = m.returnRelatedQuestions
+		if len(m.responseFormat) > 0 {
+			req.ResponseFormat = &perplexity.ResponseFormat{
+				Type:       "json_schema",
+				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
+			}
+		}
 
 	case *SonarReasoningPro:
 		if m.maxTokens > 0 {
@@ -380,6 +436,12 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		}
 		req.ReturnImages = m.returnImages
 		req.ReturnRelatedQuestions = m.returnRelatedQuestions
+		if len(m.responseFormat) > 0 {
+			req.ResponseFormat = &perplexity.ResponseFormat{
+				Type:       "json_schema",
+				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
+			}
+		}
 
 	case *SonarDeepResearch:
 		if m.maxTokens > 0 {
@@ -402,6 +464,12 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		}
 		req.ReturnImages = m.returnImages
 		req.ReturnRelatedQuestions = m.returnRelatedQuestions
+		if len(m.responseFormat) > 0 {
+			req.ResponseFormat = &perplexity.ResponseFormat{
+				Type:       "json_schema",
+				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
+			}
+		}
 	}
 
 	c.logger.Debug().

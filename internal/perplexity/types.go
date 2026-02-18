@@ -127,6 +127,21 @@ type ImageResult struct {
 // Reference: https://docs.perplexity.ai/guides/chat-completions-guide
 // ============================================================================
 
+// ResponseFormat specifies the desired output format for a chat completion
+type ResponseFormat struct {
+	// Type is the format type; currently only "json_schema" is supported
+	Type string `json:"type"`
+
+	// JSONSchema holds the schema when Type is "json_schema"
+	JSONSchema *JSONSchemaSpec `json:"json_schema,omitempty"`
+}
+
+// JSONSchemaSpec wraps the JSON Schema object for structured outputs
+type JSONSchemaSpec struct {
+	// Schema is a valid JSON Schema object describing the expected response shape
+	Schema map[string]any `json:"schema"`
+}
+
 // ChatCompletionRequest represents a request to the chat completions endpoint
 type ChatCompletionRequest struct {
 	// Model is the name of the model to use (required)
@@ -172,6 +187,9 @@ type ChatCompletionRequest struct {
 
 	// SearchRecencyFilter filters search by recency: "hour", "day", "week", "month"
 	SearchRecencyFilter string `json:"search_recency_filter,omitempty"`
+
+	// ResponseFormat enforces a structured output format (e.g. JSON Schema)
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
 }
 
 // ChatCompletionResponse represents the response from chat completions
