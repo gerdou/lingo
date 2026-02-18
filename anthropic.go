@@ -281,7 +281,7 @@ func NewClaudeSonnet45() *ClaudeSonnet45 {
 // ClaudeOpus45 represents the Claude Opus 4.5 model (supports extended thinking)
 type ClaudeOpus45 struct{ anthropicThinkingOptions }
 
-func (m *ClaudeOpus45) ModelName() string      { return "claude-opus-4-5-20251124" }
+func (m *ClaudeOpus45) ModelName() string      { return "claude-opus-4-5-20251101" }
 func (m *ClaudeOpus45) Provider() ProviderType { return ProviderAnthropic }
 func (m *ClaudeOpus45) SystemPrompt() string   { return m.systemPrompt }
 func (m *ClaudeOpus45) supportsThinking() bool { return true }
@@ -303,7 +303,7 @@ func NewClaudeOpus45() *ClaudeOpus45 {
 // ClaudeHaiku45 represents the Claude Haiku 4.5 model (supports extended thinking)
 type ClaudeHaiku45 struct{ anthropicThinkingOptions }
 
-func (m *ClaudeHaiku45) ModelName() string      { return "claude-haiku-4-5-20251015" }
+func (m *ClaudeHaiku45) ModelName() string      { return "claude-haiku-4-5-20251001" }
 func (m *ClaudeHaiku45) Provider() ProviderType { return ProviderAnthropic }
 func (m *ClaudeHaiku45) SystemPrompt() string   { return m.systemPrompt }
 func (m *ClaudeHaiku45) supportsThinking() bool { return true }
@@ -318,6 +318,81 @@ func (m *ClaudeHaiku45) WithThinkingBudget(n int) *ClaudeHaiku45  { m.thinkingBu
 // NewClaudeHaiku45 creates a new Claude Haiku 4.5 model with default options
 func NewClaudeHaiku45() *ClaudeHaiku45 {
 	return &ClaudeHaiku45{anthropicThinkingOptions{
+		anthropicOptions: anthropicOptions{maxTokens: 8192, temperature: 1.0},
+	}}
+}
+
+// ClaudeOpus41 represents the Claude Opus 4.1 model (supports extended thinking)
+// Versions: claude-opus-4-1-20250805, claude-opus-4-1
+type ClaudeOpus41 struct{ anthropicThinkingOptions }
+
+func (m *ClaudeOpus41) ModelName() string {
+	if m.modelVersion != "" {
+		return m.modelVersion
+	}
+	return "claude-opus-4-1-20250805"
+}
+func (m *ClaudeOpus41) Provider() ProviderType { return ProviderAnthropic }
+func (m *ClaudeOpus41) SystemPrompt() string   { return m.systemPrompt }
+func (m *ClaudeOpus41) supportsThinking() bool { return true }
+
+func (m *ClaudeOpus41) WithVersion(v string) *ClaudeOpus41      { m.modelVersion = v; return m }
+func (m *ClaudeOpus41) WithMaxTokens(n int) *ClaudeOpus41       { m.maxTokens = n; return m }
+func (m *ClaudeOpus41) WithTemperature(t float64) *ClaudeOpus41 { m.temperature = t; return m }
+func (m *ClaudeOpus41) WithTopP(p float64) *ClaudeOpus41        { m.topP = p; return m }
+func (m *ClaudeOpus41) WithTopK(k int) *ClaudeOpus41            { m.topK = k; return m }
+func (m *ClaudeOpus41) WithSystemPrompt(s string) *ClaudeOpus41 { m.systemPrompt = s; return m }
+func (m *ClaudeOpus41) WithThinkingBudget(n int) *ClaudeOpus41  { m.thinkingBudget = n; return m }
+
+// NewClaudeOpus41 creates a new Claude Opus 4.1 model with default options
+func NewClaudeOpus41() *ClaudeOpus41 {
+	return &ClaudeOpus41{anthropicThinkingOptions{
+		anthropicOptions: anthropicOptions{maxTokens: 8192, temperature: 1.0},
+	}}
+}
+
+// ClaudeOpus46 represents the Claude Opus 4.6 model (supports extended thinking)
+// This is the current recommended model for complex tasks.
+type ClaudeOpus46 struct{ anthropicThinkingOptions }
+
+func (m *ClaudeOpus46) ModelName() string      { return "claude-opus-4-6" }
+func (m *ClaudeOpus46) Provider() ProviderType { return ProviderAnthropic }
+func (m *ClaudeOpus46) SystemPrompt() string   { return m.systemPrompt }
+func (m *ClaudeOpus46) supportsThinking() bool { return true }
+
+func (m *ClaudeOpus46) WithMaxTokens(n int) *ClaudeOpus46       { m.maxTokens = n; return m }
+func (m *ClaudeOpus46) WithTemperature(t float64) *ClaudeOpus46 { m.temperature = t; return m }
+func (m *ClaudeOpus46) WithTopP(p float64) *ClaudeOpus46        { m.topP = p; return m }
+func (m *ClaudeOpus46) WithTopK(k int) *ClaudeOpus46            { m.topK = k; return m }
+func (m *ClaudeOpus46) WithSystemPrompt(s string) *ClaudeOpus46 { m.systemPrompt = s; return m }
+func (m *ClaudeOpus46) WithThinkingBudget(n int) *ClaudeOpus46  { m.thinkingBudget = n; return m }
+
+// NewClaudeOpus46 creates a new Claude Opus 4.6 model with default options
+func NewClaudeOpus46() *ClaudeOpus46 {
+	return &ClaudeOpus46{anthropicThinkingOptions{
+		anthropicOptions: anthropicOptions{maxTokens: 8192, temperature: 1.0},
+	}}
+}
+
+// ClaudeSonnet46 represents the Claude Sonnet 4.6 model (supports extended thinking)
+// This is the current recommended model for speed/intelligence balance.
+type ClaudeSonnet46 struct{ anthropicThinkingOptions }
+
+func (m *ClaudeSonnet46) ModelName() string      { return "claude-sonnet-4-6" }
+func (m *ClaudeSonnet46) Provider() ProviderType { return ProviderAnthropic }
+func (m *ClaudeSonnet46) SystemPrompt() string   { return m.systemPrompt }
+func (m *ClaudeSonnet46) supportsThinking() bool { return true }
+
+func (m *ClaudeSonnet46) WithMaxTokens(n int) *ClaudeSonnet46       { m.maxTokens = n; return m }
+func (m *ClaudeSonnet46) WithTemperature(t float64) *ClaudeSonnet46 { m.temperature = t; return m }
+func (m *ClaudeSonnet46) WithTopP(p float64) *ClaudeSonnet46        { m.topP = p; return m }
+func (m *ClaudeSonnet46) WithTopK(k int) *ClaudeSonnet46            { m.topK = k; return m }
+func (m *ClaudeSonnet46) WithSystemPrompt(s string) *ClaudeSonnet46 { m.systemPrompt = s; return m }
+func (m *ClaudeSonnet46) WithThinkingBudget(n int) *ClaudeSonnet46  { m.thinkingBudget = n; return m }
+
+// NewClaudeSonnet46 creates a new Claude Sonnet 4.6 model with default options
+func NewClaudeSonnet46() *ClaudeSonnet46 {
+	return &ClaudeSonnet46{anthropicThinkingOptions{
 		anthropicOptions: anthropicOptions{maxTokens: 8192, temperature: 1.0},
 	}}
 }
@@ -545,6 +620,57 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
 		}
 	case *ClaudeHaiku45:
+		if m.maxTokens > 0 {
+			params.MaxTokens = int64(m.maxTokens)
+		}
+		if m.temperature > 0 {
+			params.Temperature = anthropic.Float(m.temperature)
+		}
+		if m.topP > 0 {
+			params.TopP = anthropic.Float(m.topP)
+		}
+		if m.topK > 0 {
+			params.TopK = anthropic.Int(int64(m.topK))
+		}
+		if m.thinkingBudget > 0 {
+			hasThinking = true
+			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
+		}
+	case *ClaudeOpus41:
+		if m.maxTokens > 0 {
+			params.MaxTokens = int64(m.maxTokens)
+		}
+		if m.temperature > 0 {
+			params.Temperature = anthropic.Float(m.temperature)
+		}
+		if m.topP > 0 {
+			params.TopP = anthropic.Float(m.topP)
+		}
+		if m.topK > 0 {
+			params.TopK = anthropic.Int(int64(m.topK))
+		}
+		if m.thinkingBudget > 0 {
+			hasThinking = true
+			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
+		}
+	case *ClaudeOpus46:
+		if m.maxTokens > 0 {
+			params.MaxTokens = int64(m.maxTokens)
+		}
+		if m.temperature > 0 {
+			params.Temperature = anthropic.Float(m.temperature)
+		}
+		if m.topP > 0 {
+			params.TopP = anthropic.Float(m.topP)
+		}
+		if m.topK > 0 {
+			params.TopK = anthropic.Int(int64(m.topK))
+		}
+		if m.thinkingBudget > 0 {
+			hasThinking = true
+			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
+		}
+	case *ClaudeSonnet46:
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
 		}

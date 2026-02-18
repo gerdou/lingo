@@ -154,6 +154,232 @@ func NewBedrockClaude35Haiku() *BedrockClaude35Haiku {
 	}}
 }
 
+// BedrockClaude37Sonnet represents Claude 3.7 Sonnet on Bedrock
+type BedrockClaude37Sonnet struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaude37Sonnet) ModelName() string {
+	return "anthropic.claude-3-7-sonnet-20250219-v1:0"
+}
+func (m *BedrockClaude37Sonnet) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaude37Sonnet) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaude37Sonnet) WithMaxTokens(n int) *BedrockClaude37Sonnet {
+	m.maxTokens = n; return m
+}
+func (m *BedrockClaude37Sonnet) WithTemperature(t float64) *BedrockClaude37Sonnet {
+	m.temperature = t; return m
+}
+func (m *BedrockClaude37Sonnet) WithTopP(p float64) *BedrockClaude37Sonnet { m.topP = p; return m }
+func (m *BedrockClaude37Sonnet) WithTopK(k int) *BedrockClaude37Sonnet     { m.topK = k; return m }
+func (m *BedrockClaude37Sonnet) WithSystemPrompt(s string) *BedrockClaude37Sonnet {
+	m.systemPrompt = s; return m
+}
+
+// NewBedrockClaude37Sonnet creates a new Claude 3.7 Sonnet model for Bedrock
+func NewBedrockClaude37Sonnet() *BedrockClaude37Sonnet {
+	return &BedrockClaude37Sonnet{bedrockClaudeOptions{
+		maxTokens:        8192,
+		temperature:      1.0,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
+// BedrockClaudeSonnet4 represents Claude Sonnet 4 on Bedrock
+type BedrockClaudeSonnet4 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeSonnet4) ModelName() string      { return "anthropic.claude-sonnet-4-20250514-v1:0" }
+func (m *BedrockClaudeSonnet4) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeSonnet4) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeSonnet4) WithMaxTokens(n int) *BedrockClaudeSonnet4 {
+	m.maxTokens = n; return m
+}
+func (m *BedrockClaudeSonnet4) WithTemperature(t float64) *BedrockClaudeSonnet4 {
+	m.temperature = t; return m
+}
+func (m *BedrockClaudeSonnet4) WithTopP(p float64) *BedrockClaudeSonnet4 { m.topP = p; return m }
+func (m *BedrockClaudeSonnet4) WithTopK(k int) *BedrockClaudeSonnet4     { m.topK = k; return m }
+func (m *BedrockClaudeSonnet4) WithSystemPrompt(s string) *BedrockClaudeSonnet4 {
+	m.systemPrompt = s; return m
+}
+
+// NewBedrockClaudeSonnet4 creates a new Claude Sonnet 4 model for Bedrock
+func NewBedrockClaudeSonnet4() *BedrockClaudeSonnet4 {
+	return &BedrockClaudeSonnet4{bedrockClaudeOptions{
+		maxTokens:        8192,
+		temperature:      1.0,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
+// BedrockClaudeOpus4 represents Claude Opus 4 on Bedrock
+type BedrockClaudeOpus4 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeOpus4) ModelName() string      { return "anthropic.claude-opus-4-20250514-v1:0" }
+func (m *BedrockClaudeOpus4) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeOpus4) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeOpus4) WithMaxTokens(n int) *BedrockClaudeOpus4 { m.maxTokens = n; return m }
+func (m *BedrockClaudeOpus4) WithTemperature(t float64) *BedrockClaudeOpus4 {
+	m.temperature = t; return m
+}
+func (m *BedrockClaudeOpus4) WithTopP(p float64) *BedrockClaudeOpus4 { m.topP = p; return m }
+func (m *BedrockClaudeOpus4) WithTopK(k int) *BedrockClaudeOpus4     { m.topK = k; return m }
+func (m *BedrockClaudeOpus4) WithSystemPrompt(s string) *BedrockClaudeOpus4 {
+	m.systemPrompt = s; return m
+}
+
+// NewBedrockClaudeOpus4 creates a new Claude Opus 4 model for Bedrock
+func NewBedrockClaudeOpus4() *BedrockClaudeOpus4 {
+	return &BedrockClaudeOpus4{bedrockClaudeOptions{
+		maxTokens:        8192,
+		temperature:      1.0,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
+// BedrockClaudeSonnet45 represents Claude Sonnet 4.5 on Bedrock
+type BedrockClaudeSonnet45 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeSonnet45) ModelName() string {
+	return "anthropic.claude-sonnet-4-5-20250929-v1:0"
+}
+func (m *BedrockClaudeSonnet45) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeSonnet45) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeSonnet45) WithMaxTokens(n int) *BedrockClaudeSonnet45 {
+	m.maxTokens = n; return m
+}
+func (m *BedrockClaudeSonnet45) WithTemperature(t float64) *BedrockClaudeSonnet45 {
+	m.temperature = t; return m
+}
+func (m *BedrockClaudeSonnet45) WithTopP(p float64) *BedrockClaudeSonnet45 { m.topP = p; return m }
+func (m *BedrockClaudeSonnet45) WithTopK(k int) *BedrockClaudeSonnet45     { m.topK = k; return m }
+func (m *BedrockClaudeSonnet45) WithSystemPrompt(s string) *BedrockClaudeSonnet45 {
+	m.systemPrompt = s; return m
+}
+
+// NewBedrockClaudeSonnet45 creates a new Claude Sonnet 4.5 model for Bedrock
+func NewBedrockClaudeSonnet45() *BedrockClaudeSonnet45 {
+	return &BedrockClaudeSonnet45{bedrockClaudeOptions{
+		maxTokens:        8192,
+		temperature:      1.0,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
+// BedrockClaudeOpus45 represents Claude Opus 4.5 on Bedrock
+type BedrockClaudeOpus45 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeOpus45) ModelName() string {
+	return "anthropic.claude-opus-4-5-20251101-v1:0"
+}
+func (m *BedrockClaudeOpus45) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeOpus45) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeOpus45) WithMaxTokens(n int) *BedrockClaudeOpus45 { m.maxTokens = n; return m }
+func (m *BedrockClaudeOpus45) WithTemperature(t float64) *BedrockClaudeOpus45 {
+	m.temperature = t; return m
+}
+func (m *BedrockClaudeOpus45) WithTopP(p float64) *BedrockClaudeOpus45 { m.topP = p; return m }
+func (m *BedrockClaudeOpus45) WithTopK(k int) *BedrockClaudeOpus45     { m.topK = k; return m }
+func (m *BedrockClaudeOpus45) WithSystemPrompt(s string) *BedrockClaudeOpus45 {
+	m.systemPrompt = s; return m
+}
+
+// NewBedrockClaudeOpus45 creates a new Claude Opus 4.5 model for Bedrock
+func NewBedrockClaudeOpus45() *BedrockClaudeOpus45 {
+	return &BedrockClaudeOpus45{bedrockClaudeOptions{
+		maxTokens:        8192,
+		temperature:      1.0,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
+// BedrockClaudeHaiku45 represents Claude Haiku 4.5 on Bedrock
+type BedrockClaudeHaiku45 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeHaiku45) ModelName() string {
+	return "anthropic.claude-haiku-4-5-20251001-v1:0"
+}
+func (m *BedrockClaudeHaiku45) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeHaiku45) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeHaiku45) WithMaxTokens(n int) *BedrockClaudeHaiku45 {
+	m.maxTokens = n; return m
+}
+func (m *BedrockClaudeHaiku45) WithTemperature(t float64) *BedrockClaudeHaiku45 {
+	m.temperature = t; return m
+}
+func (m *BedrockClaudeHaiku45) WithTopP(p float64) *BedrockClaudeHaiku45 { m.topP = p; return m }
+func (m *BedrockClaudeHaiku45) WithTopK(k int) *BedrockClaudeHaiku45     { m.topK = k; return m }
+func (m *BedrockClaudeHaiku45) WithSystemPrompt(s string) *BedrockClaudeHaiku45 {
+	m.systemPrompt = s; return m
+}
+
+// NewBedrockClaudeHaiku45 creates a new Claude Haiku 4.5 model for Bedrock
+func NewBedrockClaudeHaiku45() *BedrockClaudeHaiku45 {
+	return &BedrockClaudeHaiku45{bedrockClaudeOptions{
+		maxTokens:        8192,
+		temperature:      1.0,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
+// BedrockClaudeOpus46 represents Claude Opus 4.6 on Bedrock (current recommended)
+type BedrockClaudeOpus46 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeOpus46) ModelName() string      { return "anthropic.claude-opus-4-6-v1" }
+func (m *BedrockClaudeOpus46) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeOpus46) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeOpus46) WithMaxTokens(n int) *BedrockClaudeOpus46 { m.maxTokens = n; return m }
+func (m *BedrockClaudeOpus46) WithTemperature(t float64) *BedrockClaudeOpus46 {
+	m.temperature = t; return m
+}
+func (m *BedrockClaudeOpus46) WithTopP(p float64) *BedrockClaudeOpus46 { m.topP = p; return m }
+func (m *BedrockClaudeOpus46) WithTopK(k int) *BedrockClaudeOpus46     { m.topK = k; return m }
+func (m *BedrockClaudeOpus46) WithSystemPrompt(s string) *BedrockClaudeOpus46 {
+	m.systemPrompt = s; return m
+}
+
+// NewBedrockClaudeOpus46 creates a new Claude Opus 4.6 model for Bedrock
+func NewBedrockClaudeOpus46() *BedrockClaudeOpus46 {
+	return &BedrockClaudeOpus46{bedrockClaudeOptions{
+		maxTokens:        8192,
+		temperature:      1.0,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
+// BedrockClaudeSonnet46 represents Claude Sonnet 4.6 on Bedrock (current recommended)
+type BedrockClaudeSonnet46 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeSonnet46) ModelName() string      { return "anthropic.claude-sonnet-4-6" }
+func (m *BedrockClaudeSonnet46) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeSonnet46) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeSonnet46) WithMaxTokens(n int) *BedrockClaudeSonnet46 {
+	m.maxTokens = n; return m
+}
+func (m *BedrockClaudeSonnet46) WithTemperature(t float64) *BedrockClaudeSonnet46 {
+	m.temperature = t; return m
+}
+func (m *BedrockClaudeSonnet46) WithTopP(p float64) *BedrockClaudeSonnet46 { m.topP = p; return m }
+func (m *BedrockClaudeSonnet46) WithTopK(k int) *BedrockClaudeSonnet46     { m.topK = k; return m }
+func (m *BedrockClaudeSonnet46) WithSystemPrompt(s string) *BedrockClaudeSonnet46 {
+	m.systemPrompt = s; return m
+}
+
+// NewBedrockClaudeSonnet46 creates a new Claude Sonnet 4.6 model for Bedrock
+func NewBedrockClaudeSonnet46() *BedrockClaudeSonnet46 {
+	return &BedrockClaudeSonnet46{bedrockClaudeOptions{
+		maxTokens:        8192,
+		temperature:      1.0,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
 // BedrockClaude3Sonnet represents Claude 3 Sonnet on Bedrock
 type BedrockClaude3Sonnet struct{ bedrockClaudeOptions }
 
@@ -858,6 +1084,134 @@ func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, 
 			req.System = m.systemPrompt
 		}
 	case *BedrockClaude35Haiku:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaude37Sonnet:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeSonnet4:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeOpus4:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeSonnet45:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeOpus45:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeHaiku45:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeOpus46:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeSonnet46:
 		if m.maxTokens > 0 {
 			req.MaxTokens = m.maxTokens
 		}

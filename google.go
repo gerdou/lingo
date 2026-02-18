@@ -106,6 +106,24 @@ func NewGemini25Flash() *Gemini25Flash {
 	return &Gemini25Flash{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
+// Gemini25FlashLite represents the Gemini 2.5 Flash Lite model (fast, low-cost)
+type Gemini25FlashLite struct{ googleOptions }
+
+func (m *Gemini25FlashLite) ModelName() string      { return "gemini-2.5-flash-lite" }
+func (m *Gemini25FlashLite) Provider() ProviderType { return ProviderGoogle }
+func (m *Gemini25FlashLite) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Gemini25FlashLite) WithMaxTokens(n int) *Gemini25FlashLite       { m.maxTokens = n; return m }
+func (m *Gemini25FlashLite) WithTemperature(t float64) *Gemini25FlashLite { m.temperature = t; return m }
+func (m *Gemini25FlashLite) WithTopP(p float64) *Gemini25FlashLite        { m.topP = p; return m }
+func (m *Gemini25FlashLite) WithTopK(k int) *Gemini25FlashLite            { m.topK = k; return m }
+func (m *Gemini25FlashLite) WithSystemPrompt(s string) *Gemini25FlashLite { m.systemPrompt = s; return m }
+
+// NewGemini25FlashLite creates a new Gemini 2.5 Flash Lite model with default options
+func NewGemini25FlashLite() *Gemini25FlashLite {
+	return &Gemini25FlashLite{googleOptions{maxTokens: 8192, temperature: 1.0}}
+}
+
 // Gemini20Flash represents the Gemini 2.0 Flash model
 type Gemini20Flash struct{ googleOptions }
 
@@ -394,6 +412,8 @@ func getGoogleOptions(model Model) *googleOptions {
 	case *Gemini25Pro:
 		return &m.googleOptions
 	case *Gemini25Flash:
+		return &m.googleOptions
+	case *Gemini25FlashLite:
 		return &m.googleOptions
 	case *Gemini20Flash:
 		return &m.googleOptions
