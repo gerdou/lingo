@@ -298,6 +298,111 @@ func NewDeepSeekCoder() *DeepSeekCoder {
 	return &DeepSeekCoder{ollamaOptions{maxTokens: 4096, temperature: 0.8}}
 }
 
+// Llama33 represents the Llama 3.3 model
+type Llama33 struct{ ollamaOptions }
+
+func (m *Llama33) ModelName() string      { return "llama3.3" }
+func (m *Llama33) Provider() ProviderType { return ProviderOllama }
+func (m *Llama33) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Llama33) WithMaxTokens(n int) *Llama33         { m.maxTokens = n; return m }
+func (m *Llama33) WithTemperature(t float64) *Llama33   { m.temperature = t; return m }
+func (m *Llama33) WithTopP(p float64) *Llama33          { m.topP = p; return m }
+func (m *Llama33) WithTopK(k int) *Llama33              { m.topK = k; return m }
+func (m *Llama33) WithSystemPrompt(s string) *Llama33   { m.systemPrompt = s; return m }
+func (m *Llama33) WithNumCtx(n int) *Llama33            { m.numCtx = n; return m }
+func (m *Llama33) WithRepeatPenalty(p float64) *Llama33 { m.repeatPenalty = p; return m }
+func (m *Llama33) WithSeed(s int) *Llama33              { m.seed = s; return m }
+
+// NewLlama33 creates a new Llama 3.3 model with default options
+func NewLlama33() *Llama33 {
+	return &Llama33{ollamaOptions{maxTokens: 4096, temperature: 0.8}}
+}
+
+// Gemma3 represents the Gemma 3 model
+type Gemma3 struct{ ollamaOptions }
+
+func (m *Gemma3) ModelName() string      { return "gemma3" }
+func (m *Gemma3) Provider() ProviderType { return ProviderOllama }
+func (m *Gemma3) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Gemma3) WithMaxTokens(n int) *Gemma3         { m.maxTokens = n; return m }
+func (m *Gemma3) WithTemperature(t float64) *Gemma3   { m.temperature = t; return m }
+func (m *Gemma3) WithTopP(p float64) *Gemma3          { m.topP = p; return m }
+func (m *Gemma3) WithTopK(k int) *Gemma3              { m.topK = k; return m }
+func (m *Gemma3) WithSystemPrompt(s string) *Gemma3   { m.systemPrompt = s; return m }
+func (m *Gemma3) WithNumCtx(n int) *Gemma3            { m.numCtx = n; return m }
+func (m *Gemma3) WithRepeatPenalty(p float64) *Gemma3 { m.repeatPenalty = p; return m }
+func (m *Gemma3) WithSeed(s int) *Gemma3              { m.seed = s; return m }
+
+// NewGemma3 creates a new Gemma 3 model with default options
+func NewGemma3() *Gemma3 {
+	return &Gemma3{ollamaOptions{maxTokens: 4096, temperature: 0.8}}
+}
+
+// Qwen3 represents the Qwen 3 model
+type Qwen3 struct{ ollamaOptions }
+
+func (m *Qwen3) ModelName() string      { return "qwen3" }
+func (m *Qwen3) Provider() ProviderType { return ProviderOllama }
+func (m *Qwen3) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Qwen3) WithMaxTokens(n int) *Qwen3         { m.maxTokens = n; return m }
+func (m *Qwen3) WithTemperature(t float64) *Qwen3   { m.temperature = t; return m }
+func (m *Qwen3) WithTopP(p float64) *Qwen3          { m.topP = p; return m }
+func (m *Qwen3) WithTopK(k int) *Qwen3              { m.topK = k; return m }
+func (m *Qwen3) WithSystemPrompt(s string) *Qwen3   { m.systemPrompt = s; return m }
+func (m *Qwen3) WithNumCtx(n int) *Qwen3            { m.numCtx = n; return m }
+func (m *Qwen3) WithRepeatPenalty(p float64) *Qwen3 { m.repeatPenalty = p; return m }
+func (m *Qwen3) WithSeed(s int) *Qwen3              { m.seed = s; return m }
+
+// NewQwen3 creates a new Qwen 3 model with default options
+func NewQwen3() *Qwen3 {
+	return &Qwen3{ollamaOptions{maxTokens: 4096, temperature: 0.8}}
+}
+
+// Phi4 represents the Phi 4 model
+type Phi4 struct{ ollamaOptions }
+
+func (m *Phi4) ModelName() string      { return "phi4" }
+func (m *Phi4) Provider() ProviderType { return ProviderOllama }
+func (m *Phi4) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Phi4) WithMaxTokens(n int) *Phi4         { m.maxTokens = n; return m }
+func (m *Phi4) WithTemperature(t float64) *Phi4   { m.temperature = t; return m }
+func (m *Phi4) WithTopP(p float64) *Phi4          { m.topP = p; return m }
+func (m *Phi4) WithTopK(k int) *Phi4              { m.topK = k; return m }
+func (m *Phi4) WithSystemPrompt(s string) *Phi4   { m.systemPrompt = s; return m }
+func (m *Phi4) WithNumCtx(n int) *Phi4            { m.numCtx = n; return m }
+func (m *Phi4) WithRepeatPenalty(p float64) *Phi4 { m.repeatPenalty = p; return m }
+func (m *Phi4) WithSeed(s int) *Phi4              { m.seed = s; return m }
+
+// NewPhi4 creates a new Phi 4 model with default options
+func NewPhi4() *Phi4 {
+	return &Phi4{ollamaOptions{maxTokens: 4096, temperature: 0.8}}
+}
+
+// DeepSeekR1 represents the DeepSeek-R1 reasoning model
+type DeepSeekR1 struct{ ollamaOptions }
+
+func (m *DeepSeekR1) ModelName() string      { return "deepseek-r1" }
+func (m *DeepSeekR1) Provider() ProviderType { return ProviderOllama }
+func (m *DeepSeekR1) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *DeepSeekR1) WithMaxTokens(n int) *DeepSeekR1         { m.maxTokens = n; return m }
+func (m *DeepSeekR1) WithTemperature(t float64) *DeepSeekR1   { m.temperature = t; return m }
+func (m *DeepSeekR1) WithTopP(p float64) *DeepSeekR1          { m.topP = p; return m }
+func (m *DeepSeekR1) WithTopK(k int) *DeepSeekR1              { m.topK = k; return m }
+func (m *DeepSeekR1) WithSystemPrompt(s string) *DeepSeekR1   { m.systemPrompt = s; return m }
+func (m *DeepSeekR1) WithNumCtx(n int) *DeepSeekR1            { m.numCtx = n; return m }
+func (m *DeepSeekR1) WithRepeatPenalty(p float64) *DeepSeekR1 { m.repeatPenalty = p; return m }
+func (m *DeepSeekR1) WithSeed(s int) *DeepSeekR1              { m.seed = s; return m }
+
+// NewDeepSeekR1 creates a new DeepSeek-R1 model with default options
+func NewDeepSeekR1() *DeepSeekR1 {
+	return &DeepSeekR1{ollamaOptions{maxTokens: 4096, temperature: 0.8}}
+}
+
 // ============================================================================
 // OLLAMA PROVIDER CLIENT
 // ============================================================================
@@ -395,6 +500,16 @@ func getOllamaOptions(model Model) ollamaOptions {
 	case *Qwen2:
 		return m.ollamaOptions
 	case *DeepSeekCoder:
+		return m.ollamaOptions
+	case *Llama33:
+		return m.ollamaOptions
+	case *Gemma3:
+		return m.ollamaOptions
+	case *Qwen3:
+		return m.ollamaOptions
+	case *Phi4:
+		return m.ollamaOptions
+	case *DeepSeekR1:
 		return m.ollamaOptions
 	default:
 		return ollamaOptions{}

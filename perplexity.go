@@ -50,8 +50,8 @@ type perplexityOptions struct {
 	topP                   float64
 	topK                   int
 	systemPrompt           string
-	searchRecencyFilter    string         // "hour", "day", "week", "month"
-	searchDomainFilter     []string       // Limit search to specific domains
+	searchRecencyFilter    string   // "hour", "day", "week", "month"
+	searchDomainFilter     []string // Limit search to specific domains
 	returnImages           bool
 	returnRelatedQuestions bool
 	responseFormat         map[string]any // JSON Schema for structured outputs
@@ -128,7 +128,8 @@ func NewSonarPro() *SonarPro {
 	return &SonarPro{perplexityOptions{maxTokens: 8192, temperature: 0.2}}
 }
 
-// SonarReasoning represents the Sonar Reasoning model (enhanced reasoning)
+// SonarReasoning represents the Sonar Reasoning model (enhanced reasoning).
+// Deprecated: dropped from Perplexity's current model lineup. Migrate to SonarReasoningPro.
 type SonarReasoning struct{ perplexityOptions }
 
 func (m *SonarReasoning) ModelName() string      { return "sonar-reasoning" }
@@ -254,6 +255,49 @@ func (m *SonarDeepResearch) WithResponseFormat(schema map[string]any) *SonarDeep
 // NewSonarDeepResearch creates a new Sonar Deep Research model with default options
 func NewSonarDeepResearch() *SonarDeepResearch {
 	return &SonarDeepResearch{perplexityOptions{maxTokens: 16384, temperature: 0.2}}
+}
+
+// PerplexityModel represents a generic Perplexity model.
+// Use this for any model this library has no named type for,
+// so new model releases don't require a library update.
+type PerplexityModel struct {
+	modelID string
+	perplexityOptions
+}
+
+func (m *PerplexityModel) ModelName() string      { return m.modelID }
+func (m *PerplexityModel) Provider() ProviderType { return ProviderPerplexity }
+func (m *PerplexityModel) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *PerplexityModel) WithMaxTokens(n int) *PerplexityModel       { m.maxTokens = n; return m }
+func (m *PerplexityModel) WithTemperature(t float64) *PerplexityModel { m.temperature = t; return m }
+func (m *PerplexityModel) WithTopP(p float64) *PerplexityModel        { m.topP = p; return m }
+func (m *PerplexityModel) WithTopK(k int) *PerplexityModel            { m.topK = k; return m }
+func (m *PerplexityModel) WithSystemPrompt(s string) *PerplexityModel { m.systemPrompt = s; return m }
+func (m *PerplexityModel) WithSearchRecencyFilter(f string) *PerplexityModel {
+	m.searchRecencyFilter = f
+	return m
+}
+func (m *PerplexityModel) WithSearchDomainFilter(domains []string) *PerplexityModel {
+	m.searchDomainFilter = domains
+	return m
+}
+func (m *PerplexityModel) WithReturnImages(b bool) *PerplexityModel { m.returnImages = b; return m }
+func (m *PerplexityModel) WithReturnRelatedQuestions(b bool) *PerplexityModel {
+	m.returnRelatedQuestions = b
+	return m
+}
+
+// WithResponseFormat sets a JSON Schema for structured output.
+// The schema must be a valid JSON Schema object (no recursive schemas or unconstrained dicts).
+func (m *PerplexityModel) WithResponseFormat(schema map[string]any) *PerplexityModel {
+	m.responseFormat = schema
+	return m
+}
+
+// NewPerplexityModel creates a generic Perplexity model with the specified model ID
+func NewPerplexityModel(modelID string) *PerplexityModel {
+	return &PerplexityModel{modelID: modelID, perplexityOptions: perplexityOptions{maxTokens: 8192, temperature: 0.2}}
 }
 
 // ============================================================================
@@ -444,6 +488,34 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		}
 
 	case *SonarDeepResearch:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = &m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = &m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
+		if m.searchRecencyFilter != "" {
+			req.SearchRecencyFilter = m.searchRecencyFilter
+		}
+		if len(m.searchDomainFilter) > 0 {
+			req.SearchDomainFilter = m.searchDomainFilter
+		}
+		req.ReturnImages = m.returnImages
+		req.ReturnRelatedQuestions = m.returnRelatedQuestions
+		if len(m.responseFormat) > 0 {
+			req.ResponseFormat = &perplexity.ResponseFormat{
+				Type:       "json_schema",
+				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
+			}
+		}
+
+	case *PerplexityModel:
 		if m.maxTokens > 0 {
 			req.MaxTokens = m.maxTokens
 		}

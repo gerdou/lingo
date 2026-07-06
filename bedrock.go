@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -69,6 +70,15 @@ type bedrockTitanOptions struct {
 	maxTokens    int
 	temperature  float64
 	topP         float64
+	systemPrompt string
+}
+
+// bedrockNovaOptions contains options for Amazon Nova models on Bedrock
+type bedrockNovaOptions struct {
+	maxTokens    int
+	temperature  float64
+	topP         float64
+	topK         int
 	systemPrompt string
 }
 
@@ -164,15 +174,18 @@ func (m *BedrockClaude37Sonnet) Provider() ProviderType { return ProviderBedrock
 func (m *BedrockClaude37Sonnet) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaude37Sonnet) WithMaxTokens(n int) *BedrockClaude37Sonnet {
-	m.maxTokens = n; return m
+	m.maxTokens = n
+	return m
 }
 func (m *BedrockClaude37Sonnet) WithTemperature(t float64) *BedrockClaude37Sonnet {
-	m.temperature = t; return m
+	m.temperature = t
+	return m
 }
 func (m *BedrockClaude37Sonnet) WithTopP(p float64) *BedrockClaude37Sonnet { m.topP = p; return m }
 func (m *BedrockClaude37Sonnet) WithTopK(k int) *BedrockClaude37Sonnet     { m.topK = k; return m }
 func (m *BedrockClaude37Sonnet) WithSystemPrompt(s string) *BedrockClaude37Sonnet {
-	m.systemPrompt = s; return m
+	m.systemPrompt = s
+	return m
 }
 
 // NewBedrockClaude37Sonnet creates a new Claude 3.7 Sonnet model for Bedrock
@@ -192,15 +205,18 @@ func (m *BedrockClaudeSonnet4) Provider() ProviderType { return ProviderBedrock 
 func (m *BedrockClaudeSonnet4) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeSonnet4) WithMaxTokens(n int) *BedrockClaudeSonnet4 {
-	m.maxTokens = n; return m
+	m.maxTokens = n
+	return m
 }
 func (m *BedrockClaudeSonnet4) WithTemperature(t float64) *BedrockClaudeSonnet4 {
-	m.temperature = t; return m
+	m.temperature = t
+	return m
 }
 func (m *BedrockClaudeSonnet4) WithTopP(p float64) *BedrockClaudeSonnet4 { m.topP = p; return m }
 func (m *BedrockClaudeSonnet4) WithTopK(k int) *BedrockClaudeSonnet4     { m.topK = k; return m }
 func (m *BedrockClaudeSonnet4) WithSystemPrompt(s string) *BedrockClaudeSonnet4 {
-	m.systemPrompt = s; return m
+	m.systemPrompt = s
+	return m
 }
 
 // NewBedrockClaudeSonnet4 creates a new Claude Sonnet 4 model for Bedrock
@@ -221,12 +237,14 @@ func (m *BedrockClaudeOpus4) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeOpus4) WithMaxTokens(n int) *BedrockClaudeOpus4 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus4) WithTemperature(t float64) *BedrockClaudeOpus4 {
-	m.temperature = t; return m
+	m.temperature = t
+	return m
 }
 func (m *BedrockClaudeOpus4) WithTopP(p float64) *BedrockClaudeOpus4 { m.topP = p; return m }
 func (m *BedrockClaudeOpus4) WithTopK(k int) *BedrockClaudeOpus4     { m.topK = k; return m }
 func (m *BedrockClaudeOpus4) WithSystemPrompt(s string) *BedrockClaudeOpus4 {
-	m.systemPrompt = s; return m
+	m.systemPrompt = s
+	return m
 }
 
 // NewBedrockClaudeOpus4 creates a new Claude Opus 4 model for Bedrock
@@ -248,15 +266,18 @@ func (m *BedrockClaudeSonnet45) Provider() ProviderType { return ProviderBedrock
 func (m *BedrockClaudeSonnet45) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeSonnet45) WithMaxTokens(n int) *BedrockClaudeSonnet45 {
-	m.maxTokens = n; return m
+	m.maxTokens = n
+	return m
 }
 func (m *BedrockClaudeSonnet45) WithTemperature(t float64) *BedrockClaudeSonnet45 {
-	m.temperature = t; return m
+	m.temperature = t
+	return m
 }
 func (m *BedrockClaudeSonnet45) WithTopP(p float64) *BedrockClaudeSonnet45 { m.topP = p; return m }
 func (m *BedrockClaudeSonnet45) WithTopK(k int) *BedrockClaudeSonnet45     { m.topK = k; return m }
 func (m *BedrockClaudeSonnet45) WithSystemPrompt(s string) *BedrockClaudeSonnet45 {
-	m.systemPrompt = s; return m
+	m.systemPrompt = s
+	return m
 }
 
 // NewBedrockClaudeSonnet45 creates a new Claude Sonnet 4.5 model for Bedrock
@@ -279,12 +300,14 @@ func (m *BedrockClaudeOpus45) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeOpus45) WithMaxTokens(n int) *BedrockClaudeOpus45 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus45) WithTemperature(t float64) *BedrockClaudeOpus45 {
-	m.temperature = t; return m
+	m.temperature = t
+	return m
 }
 func (m *BedrockClaudeOpus45) WithTopP(p float64) *BedrockClaudeOpus45 { m.topP = p; return m }
 func (m *BedrockClaudeOpus45) WithTopK(k int) *BedrockClaudeOpus45     { m.topK = k; return m }
 func (m *BedrockClaudeOpus45) WithSystemPrompt(s string) *BedrockClaudeOpus45 {
-	m.systemPrompt = s; return m
+	m.systemPrompt = s
+	return m
 }
 
 // NewBedrockClaudeOpus45 creates a new Claude Opus 4.5 model for Bedrock
@@ -306,15 +329,18 @@ func (m *BedrockClaudeHaiku45) Provider() ProviderType { return ProviderBedrock 
 func (m *BedrockClaudeHaiku45) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeHaiku45) WithMaxTokens(n int) *BedrockClaudeHaiku45 {
-	m.maxTokens = n; return m
+	m.maxTokens = n
+	return m
 }
 func (m *BedrockClaudeHaiku45) WithTemperature(t float64) *BedrockClaudeHaiku45 {
-	m.temperature = t; return m
+	m.temperature = t
+	return m
 }
 func (m *BedrockClaudeHaiku45) WithTopP(p float64) *BedrockClaudeHaiku45 { m.topP = p; return m }
 func (m *BedrockClaudeHaiku45) WithTopK(k int) *BedrockClaudeHaiku45     { m.topK = k; return m }
 func (m *BedrockClaudeHaiku45) WithSystemPrompt(s string) *BedrockClaudeHaiku45 {
-	m.systemPrompt = s; return m
+	m.systemPrompt = s
+	return m
 }
 
 // NewBedrockClaudeHaiku45 creates a new Claude Haiku 4.5 model for Bedrock
@@ -335,12 +361,14 @@ func (m *BedrockClaudeOpus46) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeOpus46) WithMaxTokens(n int) *BedrockClaudeOpus46 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus46) WithTemperature(t float64) *BedrockClaudeOpus46 {
-	m.temperature = t; return m
+	m.temperature = t
+	return m
 }
 func (m *BedrockClaudeOpus46) WithTopP(p float64) *BedrockClaudeOpus46 { m.topP = p; return m }
 func (m *BedrockClaudeOpus46) WithTopK(k int) *BedrockClaudeOpus46     { m.topK = k; return m }
 func (m *BedrockClaudeOpus46) WithSystemPrompt(s string) *BedrockClaudeOpus46 {
-	m.systemPrompt = s; return m
+	m.systemPrompt = s
+	return m
 }
 
 // NewBedrockClaudeOpus46 creates a new Claude Opus 4.6 model for Bedrock
@@ -360,15 +388,18 @@ func (m *BedrockClaudeSonnet46) Provider() ProviderType { return ProviderBedrock
 func (m *BedrockClaudeSonnet46) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeSonnet46) WithMaxTokens(n int) *BedrockClaudeSonnet46 {
-	m.maxTokens = n; return m
+	m.maxTokens = n
+	return m
 }
 func (m *BedrockClaudeSonnet46) WithTemperature(t float64) *BedrockClaudeSonnet46 {
-	m.temperature = t; return m
+	m.temperature = t
+	return m
 }
 func (m *BedrockClaudeSonnet46) WithTopP(p float64) *BedrockClaudeSonnet46 { m.topP = p; return m }
 func (m *BedrockClaudeSonnet46) WithTopK(k int) *BedrockClaudeSonnet46     { m.topK = k; return m }
 func (m *BedrockClaudeSonnet46) WithSystemPrompt(s string) *BedrockClaudeSonnet46 {
-	m.systemPrompt = s; return m
+	m.systemPrompt = s
+	return m
 }
 
 // NewBedrockClaudeSonnet46 creates a new Claude Sonnet 4.6 model for Bedrock
@@ -380,7 +411,9 @@ func NewBedrockClaudeSonnet46() *BedrockClaudeSonnet46 {
 	}}
 }
 
-// BedrockClaudeOpus47 represents Claude Opus 4.7 on Bedrock
+// BedrockClaudeOpus47 represents Claude Opus 4.7 on Bedrock.
+// Opus 4.7 rejects sampling parameters (temperature/topP/topK) with a 400 error,
+// so this type does not expose setters for them.
 type BedrockClaudeOpus47 struct{ bedrockClaudeOptions }
 
 func (m *BedrockClaudeOpus47) ModelName() string      { return "anthropic.claude-opus-4-7" }
@@ -388,12 +421,6 @@ func (m *BedrockClaudeOpus47) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeOpus47) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeOpus47) WithMaxTokens(n int) *BedrockClaudeOpus47 { m.maxTokens = n; return m }
-func (m *BedrockClaudeOpus47) WithTemperature(t float64) *BedrockClaudeOpus47 {
-	m.temperature = t
-	return m
-}
-func (m *BedrockClaudeOpus47) WithTopP(p float64) *BedrockClaudeOpus47 { m.topP = p; return m }
-func (m *BedrockClaudeOpus47) WithTopK(k int) *BedrockClaudeOpus47     { m.topK = k; return m }
 func (m *BedrockClaudeOpus47) WithSystemPrompt(s string) *BedrockClaudeOpus47 {
 	m.systemPrompt = s
 	return m
@@ -403,12 +430,13 @@ func (m *BedrockClaudeOpus47) WithSystemPrompt(s string) *BedrockClaudeOpus47 {
 func NewBedrockClaudeOpus47() *BedrockClaudeOpus47 {
 	return &BedrockClaudeOpus47{bedrockClaudeOptions{
 		maxTokens:        8192,
-		temperature:      1.0,
 		anthropicVersion: "bedrock-2023-05-31",
 	}}
 }
 
-// BedrockClaudeOpus48 represents Claude Opus 4.8 on Bedrock (current recommended)
+// BedrockClaudeOpus48 represents Claude Opus 4.8 on Bedrock (current recommended).
+// Opus 4.8 rejects sampling parameters (temperature/topP/topK) with a 400 error,
+// so this type does not expose setters for them.
 type BedrockClaudeOpus48 struct{ bedrockClaudeOptions }
 
 func (m *BedrockClaudeOpus48) ModelName() string      { return "anthropic.claude-opus-4-8" }
@@ -416,12 +444,6 @@ func (m *BedrockClaudeOpus48) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeOpus48) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeOpus48) WithMaxTokens(n int) *BedrockClaudeOpus48 { m.maxTokens = n; return m }
-func (m *BedrockClaudeOpus48) WithTemperature(t float64) *BedrockClaudeOpus48 {
-	m.temperature = t
-	return m
-}
-func (m *BedrockClaudeOpus48) WithTopP(p float64) *BedrockClaudeOpus48 { m.topP = p; return m }
-func (m *BedrockClaudeOpus48) WithTopK(k int) *BedrockClaudeOpus48     { m.topK = k; return m }
 func (m *BedrockClaudeOpus48) WithSystemPrompt(s string) *BedrockClaudeOpus48 {
 	m.systemPrompt = s
 	return m
@@ -431,12 +453,13 @@ func (m *BedrockClaudeOpus48) WithSystemPrompt(s string) *BedrockClaudeOpus48 {
 func NewBedrockClaudeOpus48() *BedrockClaudeOpus48 {
 	return &BedrockClaudeOpus48{bedrockClaudeOptions{
 		maxTokens:        8192,
-		temperature:      1.0,
 		anthropicVersion: "bedrock-2023-05-31",
 	}}
 }
 
-// BedrockClaudeFable5 represents Claude Fable 5 on Bedrock (most capable)
+// BedrockClaudeFable5 represents Claude Fable 5 on Bedrock (most capable).
+// Fable 5 rejects sampling parameters (temperature/topP/topK) with a 400 error
+// and thinking is always on, so this type does not expose setters for them.
 type BedrockClaudeFable5 struct{ bedrockClaudeOptions }
 
 func (m *BedrockClaudeFable5) ModelName() string      { return "anthropic.claude-fable-5" }
@@ -444,12 +467,6 @@ func (m *BedrockClaudeFable5) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeFable5) SystemPrompt() string   { return m.systemPrompt }
 
 func (m *BedrockClaudeFable5) WithMaxTokens(n int) *BedrockClaudeFable5 { m.maxTokens = n; return m }
-func (m *BedrockClaudeFable5) WithTemperature(t float64) *BedrockClaudeFable5 {
-	m.temperature = t
-	return m
-}
-func (m *BedrockClaudeFable5) WithTopP(p float64) *BedrockClaudeFable5 { m.topP = p; return m }
-func (m *BedrockClaudeFable5) WithTopK(k int) *BedrockClaudeFable5     { m.topK = k; return m }
 func (m *BedrockClaudeFable5) WithSystemPrompt(s string) *BedrockClaudeFable5 {
 	m.systemPrompt = s
 	return m
@@ -459,7 +476,6 @@ func (m *BedrockClaudeFable5) WithSystemPrompt(s string) *BedrockClaudeFable5 {
 func NewBedrockClaudeFable5() *BedrockClaudeFable5 {
 	return &BedrockClaudeFable5{bedrockClaudeOptions{
 		maxTokens:        8192,
-		temperature:      1.0,
 		anthropicVersion: "bedrock-2023-05-31",
 	}}
 }
@@ -628,6 +644,101 @@ func NewBedrockTitanTextPremier() *BedrockTitanTextPremier {
 }
 
 // ============================================================================
+// BEDROCK AMAZON NOVA MODELS
+// ============================================================================
+// Nova is Amazon's current first-party model family, superseding Titan Text.
+// Note: in many regions Nova models are only invokable through cross-region
+// inference profiles — if the base ID fails with a validation error, use
+// NewBedrockModel with the profile ID (e.g. "us.amazon.nova-pro-v1:0", "nova").
+
+// BedrockNovaMicro represents Amazon Nova Micro on Bedrock (text-only, lowest latency)
+type BedrockNovaMicro struct{ bedrockNovaOptions }
+
+func (m *BedrockNovaMicro) ModelName() string      { return "amazon.nova-micro-v1:0" }
+func (m *BedrockNovaMicro) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockNovaMicro) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockNovaMicro) WithMaxTokens(n int) *BedrockNovaMicro       { m.maxTokens = n; return m }
+func (m *BedrockNovaMicro) WithTemperature(t float64) *BedrockNovaMicro { m.temperature = t; return m }
+func (m *BedrockNovaMicro) WithTopP(p float64) *BedrockNovaMicro        { m.topP = p; return m }
+func (m *BedrockNovaMicro) WithTopK(k int) *BedrockNovaMicro            { m.topK = k; return m }
+func (m *BedrockNovaMicro) WithSystemPrompt(s string) *BedrockNovaMicro {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockNovaMicro creates a new Amazon Nova Micro model for Bedrock
+func NewBedrockNovaMicro() *BedrockNovaMicro {
+	return &BedrockNovaMicro{bedrockNovaOptions{maxTokens: 4096, temperature: 0.7}}
+}
+
+// BedrockNovaLite represents Amazon Nova Lite on Bedrock (fast, low cost)
+type BedrockNovaLite struct{ bedrockNovaOptions }
+
+func (m *BedrockNovaLite) ModelName() string      { return "amazon.nova-lite-v1:0" }
+func (m *BedrockNovaLite) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockNovaLite) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockNovaLite) WithMaxTokens(n int) *BedrockNovaLite       { m.maxTokens = n; return m }
+func (m *BedrockNovaLite) WithTemperature(t float64) *BedrockNovaLite { m.temperature = t; return m }
+func (m *BedrockNovaLite) WithTopP(p float64) *BedrockNovaLite        { m.topP = p; return m }
+func (m *BedrockNovaLite) WithTopK(k int) *BedrockNovaLite            { m.topK = k; return m }
+func (m *BedrockNovaLite) WithSystemPrompt(s string) *BedrockNovaLite {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockNovaLite creates a new Amazon Nova Lite model for Bedrock
+func NewBedrockNovaLite() *BedrockNovaLite {
+	return &BedrockNovaLite{bedrockNovaOptions{maxTokens: 4096, temperature: 0.7}}
+}
+
+// BedrockNovaPro represents Amazon Nova Pro on Bedrock (balanced capability)
+type BedrockNovaPro struct{ bedrockNovaOptions }
+
+func (m *BedrockNovaPro) ModelName() string      { return "amazon.nova-pro-v1:0" }
+func (m *BedrockNovaPro) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockNovaPro) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockNovaPro) WithMaxTokens(n int) *BedrockNovaPro       { m.maxTokens = n; return m }
+func (m *BedrockNovaPro) WithTemperature(t float64) *BedrockNovaPro { m.temperature = t; return m }
+func (m *BedrockNovaPro) WithTopP(p float64) *BedrockNovaPro        { m.topP = p; return m }
+func (m *BedrockNovaPro) WithTopK(k int) *BedrockNovaPro            { m.topK = k; return m }
+func (m *BedrockNovaPro) WithSystemPrompt(s string) *BedrockNovaPro {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockNovaPro creates a new Amazon Nova Pro model for Bedrock
+func NewBedrockNovaPro() *BedrockNovaPro {
+	return &BedrockNovaPro{bedrockNovaOptions{maxTokens: 4096, temperature: 0.7}}
+}
+
+// BedrockNovaPremier represents Amazon Nova Premier on Bedrock (most capable Nova)
+type BedrockNovaPremier struct{ bedrockNovaOptions }
+
+func (m *BedrockNovaPremier) ModelName() string      { return "amazon.nova-premier-v1:0" }
+func (m *BedrockNovaPremier) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockNovaPremier) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockNovaPremier) WithMaxTokens(n int) *BedrockNovaPremier { m.maxTokens = n; return m }
+func (m *BedrockNovaPremier) WithTemperature(t float64) *BedrockNovaPremier {
+	m.temperature = t
+	return m
+}
+func (m *BedrockNovaPremier) WithTopP(p float64) *BedrockNovaPremier { m.topP = p; return m }
+func (m *BedrockNovaPremier) WithTopK(k int) *BedrockNovaPremier     { m.topK = k; return m }
+func (m *BedrockNovaPremier) WithSystemPrompt(s string) *BedrockNovaPremier {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockNovaPremier creates a new Amazon Nova Premier model for Bedrock
+func NewBedrockNovaPremier() *BedrockNovaPremier {
+	return &BedrockNovaPremier{bedrockNovaOptions{maxTokens: 4096, temperature: 0.7}}
+}
+
+// ============================================================================
 // BEDROCK LLAMA MODELS
 // ============================================================================
 
@@ -776,6 +887,86 @@ func NewBedrockLlama32Instruct3B() *BedrockLlama32Instruct3B {
 	return &BedrockLlama32Instruct3B{bedrockLlamaOptions{maxTokens: 2048, temperature: 0.6}}
 }
 
+// BedrockLlama33Instruct70B represents Meta Llama 3.3 70B Instruct on Bedrock
+type BedrockLlama33Instruct70B struct{ bedrockLlamaOptions }
+
+func (m *BedrockLlama33Instruct70B) ModelName() string      { return "meta.llama3-3-70b-instruct-v1:0" }
+func (m *BedrockLlama33Instruct70B) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockLlama33Instruct70B) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockLlama33Instruct70B) WithMaxTokens(n int) *BedrockLlama33Instruct70B {
+	m.maxTokens = n
+	return m
+}
+func (m *BedrockLlama33Instruct70B) WithTemperature(t float64) *BedrockLlama33Instruct70B {
+	m.temperature = t
+	return m
+}
+func (m *BedrockLlama33Instruct70B) WithTopP(p float64) *BedrockLlama33Instruct70B {
+	m.topP = p
+	return m
+}
+func (m *BedrockLlama33Instruct70B) WithSystemPrompt(s string) *BedrockLlama33Instruct70B {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockLlama33Instruct70B creates a new Llama 3.3 70B Instruct model for Bedrock
+func NewBedrockLlama33Instruct70B() *BedrockLlama33Instruct70B {
+	return &BedrockLlama33Instruct70B{bedrockLlamaOptions{maxTokens: 2048, temperature: 0.6}}
+}
+
+// BedrockLlama4Scout represents Meta Llama 4 Scout 17B on Bedrock
+type BedrockLlama4Scout struct{ bedrockLlamaOptions }
+
+func (m *BedrockLlama4Scout) ModelName() string      { return "meta.llama4-scout-17b-instruct-v1:0" }
+func (m *BedrockLlama4Scout) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockLlama4Scout) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockLlama4Scout) WithMaxTokens(n int) *BedrockLlama4Scout { m.maxTokens = n; return m }
+func (m *BedrockLlama4Scout) WithTemperature(t float64) *BedrockLlama4Scout {
+	m.temperature = t
+	return m
+}
+func (m *BedrockLlama4Scout) WithTopP(p float64) *BedrockLlama4Scout { m.topP = p; return m }
+func (m *BedrockLlama4Scout) WithSystemPrompt(s string) *BedrockLlama4Scout {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockLlama4Scout creates a new Llama 4 Scout model for Bedrock
+func NewBedrockLlama4Scout() *BedrockLlama4Scout {
+	return &BedrockLlama4Scout{bedrockLlamaOptions{maxTokens: 2048, temperature: 0.6}}
+}
+
+// BedrockLlama4Maverick represents Meta Llama 4 Maverick 17B on Bedrock
+type BedrockLlama4Maverick struct{ bedrockLlamaOptions }
+
+func (m *BedrockLlama4Maverick) ModelName() string {
+	return "meta.llama4-maverick-17b-instruct-v1:0"
+}
+func (m *BedrockLlama4Maverick) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockLlama4Maverick) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockLlama4Maverick) WithMaxTokens(n int) *BedrockLlama4Maverick {
+	m.maxTokens = n
+	return m
+}
+func (m *BedrockLlama4Maverick) WithTemperature(t float64) *BedrockLlama4Maverick {
+	m.temperature = t
+	return m
+}
+func (m *BedrockLlama4Maverick) WithTopP(p float64) *BedrockLlama4Maverick { m.topP = p; return m }
+func (m *BedrockLlama4Maverick) WithSystemPrompt(s string) *BedrockLlama4Maverick {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockLlama4Maverick creates a new Llama 4 Maverick model for Bedrock
+func NewBedrockLlama4Maverick() *BedrockLlama4Maverick {
+	return &BedrockLlama4Maverick{bedrockLlamaOptions{maxTokens: 2048, temperature: 0.6}}
+}
+
 // ============================================================================
 // BEDROCK MISTRAL MODELS
 // ============================================================================
@@ -822,7 +1013,8 @@ func NewBedrockMixtral8x7B() *BedrockMixtral8x7B {
 	return &BedrockMixtral8x7B{bedrockMistralOptions{maxTokens: 4096, temperature: 0.7}}
 }
 
-// BedrockMistralLarge represents Mistral Large on Bedrock
+// BedrockMistralLarge represents Mistral Large (24.02) on Bedrock.
+// Consider BedrockMistralLarge2407 for the newer revision.
 type BedrockMistralLarge struct{ bedrockMistralOptions }
 
 func (m *BedrockMistralLarge) ModelName() string      { return "mistral.mistral-large-2402-v1:0" }
@@ -846,12 +1038,41 @@ func NewBedrockMistralLarge() *BedrockMistralLarge {
 	return &BedrockMistralLarge{bedrockMistralOptions{maxTokens: 8192, temperature: 0.7}}
 }
 
+// BedrockMistralLarge2407 represents Mistral Large 2 (24.07) on Bedrock
+type BedrockMistralLarge2407 struct{ bedrockMistralOptions }
+
+func (m *BedrockMistralLarge2407) ModelName() string      { return "mistral.mistral-large-2407-v1:0" }
+func (m *BedrockMistralLarge2407) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockMistralLarge2407) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockMistralLarge2407) WithMaxTokens(n int) *BedrockMistralLarge2407 {
+	m.maxTokens = n
+	return m
+}
+func (m *BedrockMistralLarge2407) WithTemperature(t float64) *BedrockMistralLarge2407 {
+	m.temperature = t
+	return m
+}
+func (m *BedrockMistralLarge2407) WithTopP(p float64) *BedrockMistralLarge2407 { m.topP = p; return m }
+func (m *BedrockMistralLarge2407) WithTopK(k int) *BedrockMistralLarge2407     { m.topK = k; return m }
+func (m *BedrockMistralLarge2407) WithSystemPrompt(s string) *BedrockMistralLarge2407 {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockMistralLarge2407 creates a new Mistral Large 2 (24.07) model for Bedrock
+func NewBedrockMistralLarge2407() *BedrockMistralLarge2407 {
+	return &BedrockMistralLarge2407{bedrockMistralOptions{maxTokens: 8192, temperature: 0.7}}
+}
+
 // ============================================================================
 // GENERIC BEDROCK MODEL
 // ============================================================================
 
 // BedrockModel represents a generic Bedrock model
-// Use this for any model available in your Bedrock environment
+// Use this for any model available in your Bedrock environment, including
+// cross-region inference profile IDs (e.g. "us.anthropic.claude-opus-4-8"),
+// which many newer models require outside their home regions.
 type BedrockModel struct {
 	modelID      string
 	maxTokens    int
@@ -859,7 +1080,7 @@ type BedrockModel struct {
 	topP         float64
 	topK         int
 	systemPrompt string
-	modelFamily  string // "claude", "titan", "llama", "mistral"
+	modelFamily  string // "claude", "nova", "titan", "llama", "mistral"
 }
 
 func (m *BedrockModel) ModelName() string      { return m.modelID }
@@ -874,7 +1095,7 @@ func (m *BedrockModel) WithSystemPrompt(s string) *BedrockModel { m.systemPrompt
 func (m *BedrockModel) WithModelFamily(f string) *BedrockModel  { m.modelFamily = f; return m }
 
 // NewBedrockModel creates a new generic Bedrock model with the specified model ID
-// modelFamily should be one of: "claude", "titan", "llama", "mistral"
+// modelFamily should be one of: "claude", "nova", "titan", "llama", "mistral"
 func NewBedrockModel(modelID, modelFamily string) *BedrockModel {
 	return &BedrockModel{
 		modelID:     modelID,
@@ -999,6 +1220,45 @@ type bedrockTitanResult struct {
 	TokenCount       int    `json:"tokenCount"`
 }
 
+// Nova format (messages-v1 schema)
+type bedrockNovaRequest struct {
+	SchemaVersion   string                `json:"schemaVersion"`
+	Messages        []bedrockNovaMessage  `json:"messages"`
+	System          []bedrockNovaText     `json:"system,omitempty"`
+	InferenceConfig *bedrockNovaInference `json:"inferenceConfig,omitempty"`
+}
+
+type bedrockNovaText struct {
+	Text string `json:"text"`
+}
+
+type bedrockNovaMessage struct {
+	Role    string            `json:"role"`
+	Content []bedrockNovaText `json:"content"`
+}
+
+type bedrockNovaInference struct {
+	MaxTokens   int     `json:"maxTokens,omitempty"`
+	Temperature float64 `json:"temperature,omitempty"`
+	TopP        float64 `json:"topP,omitempty"`
+	TopK        int     `json:"topK,omitempty"`
+}
+
+type bedrockNovaResponse struct {
+	Output struct {
+		Message struct {
+			Role    string            `json:"role"`
+			Content []bedrockNovaText `json:"content"`
+		} `json:"message"`
+	} `json:"output"`
+	StopReason string `json:"stopReason"`
+	Usage      struct {
+		InputTokens  int `json:"inputTokens"`
+		OutputTokens int `json:"outputTokens"`
+		TotalTokens  int `json:"totalTokens"`
+	} `json:"usage"`
+}
+
 // Llama format
 type bedrockLlamaRequest struct {
 	Prompt      string  `json:"prompt"`
@@ -1032,16 +1292,29 @@ type bedrockMistralOutput struct {
 	StopReason string `json:"stop_reason"`
 }
 
-// getModelFamily determines the model family from the model ID
+// getModelFamily determines the model family from the model ID.
+// Cross-region inference profile IDs prefix the base model ID with a routing
+// scope (e.g. "us.anthropic.claude-...", "global.anthropic.claude-..."); many
+// newer Bedrock models are only invokable through such profiles, so the prefix
+// is stripped before matching the provider.
 func getModelFamily(modelID string) string {
+	id := modelID
+	for _, scope := range []string{"us.", "eu.", "apac.", "jp.", "au.", "ca.", "sa.", "global."} {
+		if strings.HasPrefix(id, scope) {
+			id = strings.TrimPrefix(id, scope)
+			break
+		}
+	}
 	switch {
-	case len(modelID) >= 9 && modelID[:9] == "anthropic":
+	case strings.HasPrefix(id, "anthropic."):
 		return "claude"
-	case len(modelID) >= 6 && modelID[:6] == "amazon":
+	case strings.HasPrefix(id, "amazon.nova"):
+		return "nova"
+	case strings.HasPrefix(id, "amazon."):
 		return "titan"
-	case len(modelID) >= 4 && modelID[:4] == "meta":
+	case strings.HasPrefix(id, "meta."):
 		return "llama"
-	case len(modelID) >= 7 && modelID[:7] == "mistral":
+	case strings.HasPrefix(id, "mistral."):
 		return "mistral"
 	default:
 		return "unknown"
@@ -1081,6 +1354,8 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 	switch modelFamily {
 	case "claude":
 		body, err = c.buildClaudeRequest(model, prompt)
+	case "nova":
+		body, err = c.buildNovaRequest(model, prompt)
 	case "titan":
 		body, err = c.buildTitanRequest(model, prompt)
 	case "llama":
@@ -1119,6 +1394,8 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 	switch modelFamily {
 	case "claude":
 		response, err = c.parseClaudeResponse(output.Body, modelID)
+	case "nova":
+		response, err = c.parseNovaResponse(output.Body, modelID)
 	case "titan":
 		response, err = c.parseTitanResponse(output.Body, modelID)
 	case "llama":
@@ -1311,18 +1588,11 @@ func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, 
 		if m.systemPrompt != "" {
 			req.System = m.systemPrompt
 		}
+	// Opus 4.7/4.8 and Fable 5 reject sampling parameters (temperature/topP/topK)
+	// with a 400 error; only max_tokens and the system prompt are sent.
 	case *BedrockClaudeOpus47:
 		if m.maxTokens > 0 {
 			req.MaxTokens = m.maxTokens
-		}
-		if m.temperature > 0 {
-			req.Temperature = m.temperature
-		}
-		if m.topP > 0 {
-			req.TopP = m.topP
-		}
-		if m.topK > 0 {
-			req.TopK = m.topK
 		}
 		if m.systemPrompt != "" {
 			req.System = m.systemPrompt
@@ -1331,30 +1601,12 @@ func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, 
 		if m.maxTokens > 0 {
 			req.MaxTokens = m.maxTokens
 		}
-		if m.temperature > 0 {
-			req.Temperature = m.temperature
-		}
-		if m.topP > 0 {
-			req.TopP = m.topP
-		}
-		if m.topK > 0 {
-			req.TopK = m.topK
-		}
 		if m.systemPrompt != "" {
 			req.System = m.systemPrompt
 		}
 	case *BedrockClaudeFable5:
 		if m.maxTokens > 0 {
 			req.MaxTokens = m.maxTokens
-		}
-		if m.temperature > 0 {
-			req.Temperature = m.temperature
-		}
-		if m.topP > 0 {
-			req.TopP = m.topP
-		}
-		if m.topK > 0 {
-			req.TopK = m.topK
 		}
 		if m.systemPrompt != "" {
 			req.System = m.systemPrompt
@@ -1423,6 +1675,50 @@ func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, 
 		if m.systemPrompt != "" {
 			req.System = m.systemPrompt
 		}
+	}
+
+	return json.Marshal(req)
+}
+
+func (c *bedrockClient) buildNovaRequest(model Model, prompt string) ([]byte, error) {
+	req := bedrockNovaRequest{
+		SchemaVersion: "messages-v1",
+		Messages: []bedrockNovaMessage{
+			{Role: "user", Content: []bedrockNovaText{{Text: prompt}}},
+		},
+		InferenceConfig: &bedrockNovaInference{MaxTokens: 4096},
+	}
+
+	if model.SystemPrompt() != "" {
+		req.System = []bedrockNovaText{{Text: model.SystemPrompt()}}
+	}
+
+	applyOpts := func(maxTokens int, temperature, topP float64, topK int) {
+		if maxTokens > 0 {
+			req.InferenceConfig.MaxTokens = maxTokens
+		}
+		if temperature > 0 {
+			req.InferenceConfig.Temperature = temperature
+		}
+		if topP > 0 {
+			req.InferenceConfig.TopP = topP
+		}
+		if topK > 0 {
+			req.InferenceConfig.TopK = topK
+		}
+	}
+
+	switch m := model.(type) {
+	case *BedrockNovaMicro:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	case *BedrockNovaLite:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	case *BedrockNovaPro:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	case *BedrockNovaPremier:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	case *BedrockModel:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
 	}
 
 	return json.Marshal(req)
@@ -1558,6 +1854,36 @@ func (c *bedrockClient) buildLlamaRequest(model Model, prompt string) ([]byte, e
 		if m.topP > 0 {
 			req.TopP = m.topP
 		}
+	case *BedrockLlama33Instruct70B:
+		if m.maxTokens > 0 {
+			req.MaxGenLen = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+	case *BedrockLlama4Scout:
+		if m.maxTokens > 0 {
+			req.MaxGenLen = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+	case *BedrockLlama4Maverick:
+		if m.maxTokens > 0 {
+			req.MaxGenLen = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
 	case *BedrockModel:
 		if m.maxTokens > 0 {
 			req.MaxGenLen = m.maxTokens
@@ -1630,6 +1956,19 @@ func (c *bedrockClient) buildMistralRequest(model Model, prompt string) ([]byte,
 		if m.topK > 0 {
 			req.TopK = m.topK
 		}
+	case *BedrockMistralLarge2407:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.temperature > 0 {
+			req.Temperature = m.temperature
+		}
+		if m.topP > 0 {
+			req.TopP = m.topP
+		}
+		if m.topK > 0 {
+			req.TopK = m.topK
+		}
 	case *BedrockModel:
 		if m.maxTokens > 0 {
 			req.MaxTokens = m.maxTokens
@@ -1652,6 +1991,12 @@ func (c *bedrockClient) parseClaudeResponse(body []byte, modelID string) (*Gener
 	var resp bedrockClaudeResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("failed to parse Claude response: %w", err)
+	}
+
+	// Safety classifiers (notably on Claude Fable 5) can decline a request with
+	// stop_reason "refusal" and empty or partial content.
+	if resp.StopReason == "refusal" {
+		return nil, fmt.Errorf("claude declined the request (stop_reason: refusal) for model %s; retry on a different model such as anthropic.claude-opus-4-8", modelID)
 	}
 
 	if len(resp.Content) == 0 {
@@ -1678,6 +2023,43 @@ func (c *bedrockClient) parseClaudeResponse(body []byte, modelID string) (*Gener
 			"provider": "bedrock",
 			"model":    modelID,
 			"family":   "claude",
+		},
+	}, nil
+}
+
+func (c *bedrockClient) parseNovaResponse(body []byte, modelID string) (*GenerationResponse, error) {
+	var resp bedrockNovaResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse Nova response: %w", err)
+	}
+
+	if len(resp.Output.Message.Content) == 0 {
+		return nil, fmt.Errorf("no content in Nova response")
+	}
+
+	var text string
+	for _, content := range resp.Output.Message.Content {
+		text += content.Text
+	}
+
+	totalTokens := resp.Usage.TotalTokens
+	if totalTokens == 0 {
+		totalTokens = resp.Usage.InputTokens + resp.Usage.OutputTokens
+	}
+
+	return &GenerationResponse{
+		Text:         text,
+		Model:        modelID,
+		FinishReason: resp.StopReason,
+		Usage: TokenUsage{
+			PromptTokens:     resp.Usage.InputTokens,
+			CompletionTokens: resp.Usage.OutputTokens,
+			TotalTokens:      totalTokens,
+		},
+		Metadata: map[string]string{
+			"provider": "bedrock",
+			"model":    modelID,
+			"family":   "nova",
 		},
 	}, nil
 }

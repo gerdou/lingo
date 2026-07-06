@@ -281,7 +281,8 @@ func NewO1() *O1 {
 	return &O1{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
 }
 
-// O1Mini represents the O1-mini reasoning model
+// O1Mini represents the O1-mini reasoning model.
+// Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O4Mini or GPT5Mini.
 // Versions: o1-mini, o1-mini-2024-09-12
 type O1Mini struct{ openAIReasoningOptions }
 
@@ -680,7 +681,8 @@ func NewO3Pro() *O3Pro {
 	return &O3Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
 }
 
-// O1Preview represents the O1-preview reasoning model
+// O1Preview represents the O1-preview reasoning model.
+// Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O3 or GPT5.
 // Versions: o1-preview, o1-preview-2024-09-12
 type O1Preview struct{ openAIReasoningOptions }
 
@@ -702,6 +704,64 @@ func (m *O1Preview) WithSystemPrompt(s string) *O1Preview     { m.systemPrompt =
 // NewO1Preview creates a new O1-preview model with default options
 func NewO1Preview() *O1Preview {
 	return &O1Preview{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+}
+
+// ============================================================================
+// GENERIC OPENAI MODELS
+// ============================================================================
+
+// OpenAIModel represents a generic standard (non-reasoning) OpenAI model.
+// Use this for any chat-completions model this library has no named type for,
+// so new model releases don't require a library update.
+type OpenAIModel struct {
+	modelID string
+	openAIStandardOptions
+}
+
+func (m *OpenAIModel) ModelName() string      { return m.modelID }
+func (m *OpenAIModel) Provider() ProviderType { return ProviderOpenAI }
+func (m *OpenAIModel) SystemPrompt() string   { return m.systemPrompt }
+func (m *OpenAIModel) isStandard() bool       { return true }
+
+func (m *OpenAIModel) WithMaxTokens(n int) *OpenAIModel       { m.maxTokens = n; return m }
+func (m *OpenAIModel) WithTemperature(t float64) *OpenAIModel { m.temperature = t; return m }
+func (m *OpenAIModel) WithTopP(p float64) *OpenAIModel        { m.topP = p; return m }
+func (m *OpenAIModel) WithSystemPrompt(s string) *OpenAIModel { m.systemPrompt = s; return m }
+
+// NewOpenAIModel creates a generic standard OpenAI model with the specified model ID
+func NewOpenAIModel(modelID string) *OpenAIModel {
+	return &OpenAIModel{modelID: modelID, openAIStandardOptions: openAIStandardOptions{maxTokens: 4096}}
+}
+
+// OpenAIReasoningModel represents a generic reasoning OpenAI model (o-series, GPT-5+).
+// Use this for any reasoning model this library has no named type for,
+// so new model releases don't require a library update.
+type OpenAIReasoningModel struct {
+	modelID string
+	openAIReasoningOptions
+}
+
+func (m *OpenAIReasoningModel) ModelName() string      { return m.modelID }
+func (m *OpenAIReasoningModel) Provider() ProviderType { return ProviderOpenAI }
+func (m *OpenAIReasoningModel) SystemPrompt() string   { return m.systemPrompt }
+func (m *OpenAIReasoningModel) isReasoning() bool      { return true }
+
+func (m *OpenAIReasoningModel) WithMaxCompletionTokens(n int) *OpenAIReasoningModel {
+	m.maxCompletionTokens = n
+	return m
+}
+func (m *OpenAIReasoningModel) WithReasoningEffort(e string) *OpenAIReasoningModel {
+	m.reasoningEffort = e
+	return m
+}
+func (m *OpenAIReasoningModel) WithSystemPrompt(s string) *OpenAIReasoningModel {
+	m.systemPrompt = s
+	return m
+}
+
+// NewOpenAIReasoningModel creates a generic reasoning OpenAI model with the specified model ID
+func NewOpenAIReasoningModel(modelID string) *OpenAIReasoningModel {
+	return &OpenAIReasoningModel{modelID: modelID, openAIReasoningOptions: openAIReasoningOptions{maxCompletionTokens: 8192}}
 }
 
 // ============================================================================
@@ -1028,6 +1088,25 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *O1Preview:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+
+	// Generic models
+	case *OpenAIModel:
+		if m.maxTokens > 0 {
+			params.MaxTokens = openai.Int(int64(m.maxTokens))
+		}
+		if m.temperature > 0 {
+			params.Temperature = openai.Float(m.temperature)
+		}
+		if m.topP > 0 {
+			params.TopP = openai.Float(m.topP)
+		}
+	case *OpenAIReasoningModel:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}

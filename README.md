@@ -21,8 +21,8 @@ A unified Go gateway for multiple LLM providers. Lingo provides a consistent int
 | **OpenAI** | GPT-5.5/5.5 Pro, GPT-5.4 (Pro/mini/nano), GPT-5.1 (incl. Codex), GPT-5, o-series, GPT-4o |
 | **Anthropic** | Claude Fable 5, Claude Opus 4.8/4.7/4.6, Claude Sonnet 4.6, Claude Haiku 4.5 (+ earlier Claude 4/3.x) |
 | **Google Gemini** | Gemini 3.1 Pro, Gemini 3.5 Flash, Gemini 3.1 Flash-Lite, Gemini 3 Pro/Flash, Gemini 2.5 Pro/Flash |
-| **AWS Bedrock** | Claude, Llama, Titan, and other Bedrock models |
-| **Perplexity** | Sonar, Sonar Pro, Sonar Reasoning |
+| **AWS Bedrock** | Claude, Amazon Nova, Llama, Mistral, Titan, and other Bedrock models |
+| **Perplexity** | Sonar, Sonar Pro, Sonar Reasoning Pro, Sonar Deep Research |
 | **Ollama** | Any locally running Ollama model |
 
 ## Installation
@@ -70,7 +70,7 @@ func main() {
     // Use Anthropic with the same gateway
     response, err = gateway.Generate(
         context.Background(),
-        lingo.NewClaude35Sonnet().WithMaxTokens(1000),
+        lingo.NewClaudeSonnet46().WithMaxTokens(1000),
         "Write a haiku about programming",
     )
     if err != nil {
@@ -110,13 +110,23 @@ config := &lingo.AnthropicConfig{
 }
 
 // Available models (latest first)
-model := lingo.NewClaudeFable5()  // most capable
+model := lingo.NewClaudeFable5()  // most capable; thinking always on
 model := lingo.NewClaudeOpus48()  // current recommended Opus
 model := lingo.NewClaudeOpus47()
 model := lingo.NewClaudeOpus46()
 model := lingo.NewClaudeSonnet46()
 model := lingo.NewClaudeHaiku45()
+
+// Adaptive thinking (recommended on Claude 4.6+; required form on 4.7/4.8)
+model := lingo.NewClaudeOpus48().WithAdaptiveThinking()
+
+// Any other Claude model by ID
+model := lingo.NewAnthropicModel("claude-opus-4-5-20251101")
 ```
+
+Note: Claude Opus 4.7/4.8 and Fable 5 reject sampling parameters
+(temperature/topP/topK) and fixed thinking budgets, so those setters are not
+available on their model types.
 
 ### Google Gemini
 
@@ -149,6 +159,16 @@ config := &lingo.BedrockConfig{
     AccessKeyID:     "your-access-key",
     SecretAccessKey: "your-secret-key",
 }
+
+// Available models (examples)
+model := lingo.NewBedrockClaudeFable5()
+model := lingo.NewBedrockClaudeOpus48()
+model := lingo.NewBedrockNovaPro()
+model := lingo.NewBedrockLlama4Maverick()
+
+// Any Bedrock model by ID, including cross-region inference profiles
+// (required for many newer models outside their home regions)
+model := lingo.NewBedrockModel("us.anthropic.claude-opus-4-8", "claude")
 ```
 
 ### Perplexity
@@ -161,7 +181,8 @@ config := &lingo.PerplexityConfig{
 // Available models
 model := lingo.NewSonar()
 model := lingo.NewSonarPro()
-model := lingo.NewSonarReasoning()
+model := lingo.NewSonarReasoningPro()
+model := lingo.NewSonarDeepResearch()
 ```
 
 ### Ollama
@@ -172,8 +193,12 @@ config := &lingo.OllamaConfig{
 }
 
 // Use any model running in Ollama
-model := lingo.NewOllamaModel("llama2")
+model := lingo.NewOllamaModel("llama3.3")
 model := lingo.NewOllamaModel("mistral")
+
+// Or use a preset
+model := lingo.NewDeepSeekR1()
+model := lingo.NewQwen3()
 ```
 
 ## Model Configuration

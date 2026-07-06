@@ -56,7 +56,8 @@ type anthropicOptions struct {
 // anthropicThinkingOptions contains options for models that support extended thinking
 type anthropicThinkingOptions struct {
 	anthropicOptions
-	thinkingBudget int // Must be >= 1024 and less than maxTokens
+	thinkingBudget   int  // Must be >= 1024 and less than maxTokens (legacy models only)
+	adaptiveThinking bool // Claude 4.6+; the model decides when and how much to think
 }
 
 // ============================================================================
@@ -218,7 +219,8 @@ func NewClaude37Sonnet() *Claude37Sonnet {
 	}}
 }
 
-// ClaudeSonnet4 represents the Claude Sonnet 4 model (supports extended thinking)
+// ClaudeSonnet4 represents the Claude Sonnet 4 model (supports extended thinking).
+// Deprecated: retired by Anthropic (Jun 15, 2026); the API returns 404. Migrate to ClaudeSonnet46.
 type ClaudeSonnet4 struct{ anthropicThinkingOptions }
 
 func (m *ClaudeSonnet4) ModelName() string      { return "claude-sonnet-4-20250514" }
@@ -240,7 +242,8 @@ func NewClaudeSonnet4() *ClaudeSonnet4 {
 	}}
 }
 
-// ClaudeOpus4 represents the Claude Opus 4 model (supports extended thinking)
+// ClaudeOpus4 represents the Claude Opus 4 model (supports extended thinking).
+// Deprecated: retired by Anthropic (Jun 15, 2026); the API returns 404. Migrate to ClaudeOpus48.
 type ClaudeOpus4 struct{ anthropicThinkingOptions }
 
 func (m *ClaudeOpus4) ModelName() string      { return "claude-opus-4-20250514" }
@@ -328,7 +331,8 @@ func NewClaudeHaiku45() *ClaudeHaiku45 {
 	}}
 }
 
-// ClaudeOpus41 represents the Claude Opus 4.1 model (supports extended thinking)
+// ClaudeOpus41 represents the Claude Opus 4.1 model (supports extended thinking).
+// Deprecated: scheduled for retirement by Anthropic on Aug 5, 2026. Migrate to ClaudeOpus48.
 // Versions: claude-opus-4-1-20250805, claude-opus-4-1
 type ClaudeOpus41 struct{ anthropicThinkingOptions }
 
@@ -371,7 +375,14 @@ func (m *ClaudeOpus46) WithTemperature(t float64) *ClaudeOpus46 { m.temperature 
 func (m *ClaudeOpus46) WithTopP(p float64) *ClaudeOpus46        { m.topP = p; return m }
 func (m *ClaudeOpus46) WithTopK(k int) *ClaudeOpus46            { m.topK = k; return m }
 func (m *ClaudeOpus46) WithSystemPrompt(s string) *ClaudeOpus46 { m.systemPrompt = s; return m }
-func (m *ClaudeOpus46) WithThinkingBudget(n int) *ClaudeOpus46  { m.thinkingBudget = n; return m }
+
+// WithAdaptiveThinking enables adaptive thinking: the model decides when and how
+// much to think. This is the recommended thinking mode for Claude 4.6+.
+func (m *ClaudeOpus46) WithAdaptiveThinking() *ClaudeOpus46 { m.adaptiveThinking = true; return m }
+
+// WithThinkingBudget sets a fixed thinking token budget.
+// Deprecated: fixed budgets are deprecated on Claude 4.6 models; use WithAdaptiveThinking.
+func (m *ClaudeOpus46) WithThinkingBudget(n int) *ClaudeOpus46 { m.thinkingBudget = n; return m }
 
 // NewClaudeOpus46 creates a new Claude Opus 4.6 model with default options
 func NewClaudeOpus46() *ClaudeOpus46 {
@@ -394,7 +405,14 @@ func (m *ClaudeSonnet46) WithTemperature(t float64) *ClaudeSonnet46 { m.temperat
 func (m *ClaudeSonnet46) WithTopP(p float64) *ClaudeSonnet46        { m.topP = p; return m }
 func (m *ClaudeSonnet46) WithTopK(k int) *ClaudeSonnet46            { m.topK = k; return m }
 func (m *ClaudeSonnet46) WithSystemPrompt(s string) *ClaudeSonnet46 { m.systemPrompt = s; return m }
-func (m *ClaudeSonnet46) WithThinkingBudget(n int) *ClaudeSonnet46  { m.thinkingBudget = n; return m }
+
+// WithAdaptiveThinking enables adaptive thinking: the model decides when and how
+// much to think. This is the recommended thinking mode for Claude 4.6+.
+func (m *ClaudeSonnet46) WithAdaptiveThinking() *ClaudeSonnet46 { m.adaptiveThinking = true; return m }
+
+// WithThinkingBudget sets a fixed thinking token budget.
+// Deprecated: fixed budgets are deprecated on Claude 4.6 models; use WithAdaptiveThinking.
+func (m *ClaudeSonnet46) WithThinkingBudget(n int) *ClaudeSonnet46 { m.thinkingBudget = n; return m }
 
 // NewClaudeSonnet46 creates a new Claude Sonnet 4.6 model with default options
 func NewClaudeSonnet46() *ClaudeSonnet46 {
@@ -403,9 +421,10 @@ func NewClaudeSonnet46() *ClaudeSonnet46 {
 	}}
 }
 
-// ClaudeOpus47 represents the Claude Opus 4.7 model (supports adaptive thinking)
+// ClaudeOpus47 represents the Claude Opus 4.7 model (supports adaptive thinking).
 // Opus 4.7 is adaptive-thinking only: sampling parameters (temperature/topP/topK)
-// and fixed thinking budgets are rejected by the API, so they are left unset by default.
+// and fixed thinking budgets are rejected by the API with a 400 error, so this
+// type does not expose setters for them. Use WithAdaptiveThinking to enable thinking.
 type ClaudeOpus47 struct{ anthropicThinkingOptions }
 
 func (m *ClaudeOpus47) ModelName() string      { return "claude-opus-4-7" }
@@ -414,11 +433,11 @@ func (m *ClaudeOpus47) SystemPrompt() string   { return m.systemPrompt }
 func (m *ClaudeOpus47) supportsThinking() bool { return true }
 
 func (m *ClaudeOpus47) WithMaxTokens(n int) *ClaudeOpus47       { m.maxTokens = n; return m }
-func (m *ClaudeOpus47) WithTemperature(t float64) *ClaudeOpus47 { m.temperature = t; return m }
-func (m *ClaudeOpus47) WithTopP(p float64) *ClaudeOpus47        { m.topP = p; return m }
-func (m *ClaudeOpus47) WithTopK(k int) *ClaudeOpus47            { m.topK = k; return m }
 func (m *ClaudeOpus47) WithSystemPrompt(s string) *ClaudeOpus47 { m.systemPrompt = s; return m }
-func (m *ClaudeOpus47) WithThinkingBudget(n int) *ClaudeOpus47  { m.thinkingBudget = n; return m }
+
+// WithAdaptiveThinking enables adaptive thinking: the model decides when and how
+// much to think. Without it, Opus 4.7 runs without thinking.
+func (m *ClaudeOpus47) WithAdaptiveThinking() *ClaudeOpus47 { m.adaptiveThinking = true; return m }
 
 // NewClaudeOpus47 creates a new Claude Opus 4.7 model with default options
 func NewClaudeOpus47() *ClaudeOpus47 {
@@ -427,10 +446,11 @@ func NewClaudeOpus47() *ClaudeOpus47 {
 	}}
 }
 
-// ClaudeOpus48 represents the Claude Opus 4.8 model (supports adaptive thinking)
+// ClaudeOpus48 represents the Claude Opus 4.8 model (supports adaptive thinking).
 // This is the current recommended Opus-tier model for complex and long-horizon tasks.
 // Opus 4.8 is adaptive-thinking only: sampling parameters (temperature/topP/topK)
-// and fixed thinking budgets are rejected by the API, so they are left unset by default.
+// and fixed thinking budgets are rejected by the API with a 400 error, so this
+// type does not expose setters for them. Use WithAdaptiveThinking to enable thinking.
 type ClaudeOpus48 struct{ anthropicThinkingOptions }
 
 func (m *ClaudeOpus48) ModelName() string      { return "claude-opus-4-8" }
@@ -439,11 +459,11 @@ func (m *ClaudeOpus48) SystemPrompt() string   { return m.systemPrompt }
 func (m *ClaudeOpus48) supportsThinking() bool { return true }
 
 func (m *ClaudeOpus48) WithMaxTokens(n int) *ClaudeOpus48       { m.maxTokens = n; return m }
-func (m *ClaudeOpus48) WithTemperature(t float64) *ClaudeOpus48 { m.temperature = t; return m }
-func (m *ClaudeOpus48) WithTopP(p float64) *ClaudeOpus48        { m.topP = p; return m }
-func (m *ClaudeOpus48) WithTopK(k int) *ClaudeOpus48            { m.topK = k; return m }
 func (m *ClaudeOpus48) WithSystemPrompt(s string) *ClaudeOpus48 { m.systemPrompt = s; return m }
-func (m *ClaudeOpus48) WithThinkingBudget(n int) *ClaudeOpus48  { m.thinkingBudget = n; return m }
+
+// WithAdaptiveThinking enables adaptive thinking: the model decides when and how
+// much to think. Without it, Opus 4.8 runs without thinking.
+func (m *ClaudeOpus48) WithAdaptiveThinking() *ClaudeOpus48 { m.adaptiveThinking = true; return m }
 
 // NewClaudeOpus48 creates a new Claude Opus 4.8 model with default options
 func NewClaudeOpus48() *ClaudeOpus48 {
@@ -452,10 +472,14 @@ func NewClaudeOpus48() *ClaudeOpus48 {
 	}}
 }
 
-// ClaudeFable5 represents the Claude Fable 5 model (supports adaptive thinking)
-// Fable 5 is Anthropic's most capable widely released model. Thinking is always on,
-// sampling parameters are rejected, and it uses a different tokenizer (~30% more
-// tokens for the same content), so they are left unset by default.
+// ClaudeFable5 represents the Claude Fable 5 model.
+// Fable 5 is Anthropic's most capable widely released model. Thinking is always on
+// (adaptive) and cannot be configured, and sampling parameters (temperature/topP/topK)
+// are rejected by the API with a 400 error, so this type does not expose setters for
+// them. It uses the same tokenizer as Opus 4.8, so token counts are roughly unchanged
+// when migrating from Opus 4.7/4.8 (older models tokenize differently — re-baseline).
+// Note: Fable 5 requires 30-day data retention and may decline requests with
+// stop_reason "refusal" (surfaced by this library as a refusal error).
 type ClaudeFable5 struct{ anthropicThinkingOptions }
 
 func (m *ClaudeFable5) ModelName() string      { return "claude-fable-5" }
@@ -464,15 +488,49 @@ func (m *ClaudeFable5) SystemPrompt() string   { return m.systemPrompt }
 func (m *ClaudeFable5) supportsThinking() bool { return true }
 
 func (m *ClaudeFable5) WithMaxTokens(n int) *ClaudeFable5       { m.maxTokens = n; return m }
-func (m *ClaudeFable5) WithTemperature(t float64) *ClaudeFable5 { m.temperature = t; return m }
-func (m *ClaudeFable5) WithTopP(p float64) *ClaudeFable5        { m.topP = p; return m }
-func (m *ClaudeFable5) WithTopK(k int) *ClaudeFable5            { m.topK = k; return m }
 func (m *ClaudeFable5) WithSystemPrompt(s string) *ClaudeFable5 { m.systemPrompt = s; return m }
-func (m *ClaudeFable5) WithThinkingBudget(n int) *ClaudeFable5  { m.thinkingBudget = n; return m }
 
 // NewClaudeFable5 creates a new Claude Fable 5 model with default options
 func NewClaudeFable5() *ClaudeFable5 {
 	return &ClaudeFable5{anthropicThinkingOptions{
+		anthropicOptions: anthropicOptions{maxTokens: 8192},
+	}}
+}
+
+// ============================================================================
+// GENERIC ANTHROPIC MODEL
+// ============================================================================
+
+// AnthropicModel represents a generic Anthropic model.
+// Use this for any Claude model this library has no named type for,
+// so new model releases don't require a library update.
+// The caller is responsible for only setting options the target model accepts
+// (e.g. Claude 4.7+ rejects temperature/topP/topK and fixed thinking budgets).
+type AnthropicModel struct {
+	modelID string
+	anthropicThinkingOptions
+}
+
+func (m *AnthropicModel) ModelName() string      { return m.modelID }
+func (m *AnthropicModel) Provider() ProviderType { return ProviderAnthropic }
+func (m *AnthropicModel) SystemPrompt() string   { return m.systemPrompt }
+func (m *AnthropicModel) supportsThinking() bool { return true }
+
+func (m *AnthropicModel) WithMaxTokens(n int) *AnthropicModel       { m.maxTokens = n; return m }
+func (m *AnthropicModel) WithTemperature(t float64) *AnthropicModel { m.temperature = t; return m }
+func (m *AnthropicModel) WithTopP(p float64) *AnthropicModel        { m.topP = p; return m }
+func (m *AnthropicModel) WithTopK(k int) *AnthropicModel            { m.topK = k; return m }
+func (m *AnthropicModel) WithSystemPrompt(s string) *AnthropicModel { m.systemPrompt = s; return m }
+
+// WithAdaptiveThinking enables adaptive thinking (Claude 4.6+).
+func (m *AnthropicModel) WithAdaptiveThinking() *AnthropicModel { m.adaptiveThinking = true; return m }
+
+// WithThinkingBudget sets a fixed thinking token budget (legacy models only).
+func (m *AnthropicModel) WithThinkingBudget(n int) *AnthropicModel { m.thinkingBudget = n; return m }
+
+// NewAnthropicModel creates a generic Anthropic model with the specified model ID
+func NewAnthropicModel(modelID string) *AnthropicModel {
+	return &AnthropicModel{modelID: modelID, anthropicThinkingOptions: anthropicThinkingOptions{
 		anthropicOptions: anthropicOptions{maxTokens: 8192},
 	}}
 }
@@ -746,7 +804,10 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 		if m.topK > 0 {
 			params.TopK = anthropic.Int(int64(m.topK))
 		}
-		if m.thinkingBudget > 0 {
+		if m.adaptiveThinking {
+			hasThinking = true
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
+		} else if m.thinkingBudget > 0 {
 			hasThinking = true
 			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
 		}
@@ -763,45 +824,41 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 		if m.topK > 0 {
 			params.TopK = anthropic.Int(int64(m.topK))
 		}
-		if m.thinkingBudget > 0 {
+		if m.adaptiveThinking {
+			hasThinking = true
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
+		} else if m.thinkingBudget > 0 {
 			hasThinking = true
 			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
 		}
+	// Opus 4.7/4.8 reject sampling parameters and fixed thinking budgets;
+	// only max_tokens and (optionally) adaptive thinking are sent.
 	case *ClaudeOpus47:
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
 		}
-		if m.temperature > 0 {
-			params.Temperature = anthropic.Float(m.temperature)
-		}
-		if m.topP > 0 {
-			params.TopP = anthropic.Float(m.topP)
-		}
-		if m.topK > 0 {
-			params.TopK = anthropic.Int(int64(m.topK))
-		}
-		if m.thinkingBudget > 0 {
+		if m.adaptiveThinking {
 			hasThinking = true
-			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
 		}
 	case *ClaudeOpus48:
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
 		}
-		if m.temperature > 0 {
-			params.Temperature = anthropic.Float(m.temperature)
-		}
-		if m.topP > 0 {
-			params.TopP = anthropic.Float(m.topP)
-		}
-		if m.topK > 0 {
-			params.TopK = anthropic.Int(int64(m.topK))
-		}
-		if m.thinkingBudget > 0 {
+		if m.adaptiveThinking {
 			hasThinking = true
-			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
 		}
+	// Fable 5: thinking is always on and must not be configured; sampling
+	// parameters are rejected. Only max_tokens is sent.
 	case *ClaudeFable5:
+		hasThinking = true
+		if m.maxTokens > 0 {
+			params.MaxTokens = int64(m.maxTokens)
+		}
+
+	// Generic model: sends whatever the caller set.
+	case *AnthropicModel:
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
 		}
@@ -814,7 +871,10 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 		if m.topK > 0 {
 			params.TopK = anthropic.Int(int64(m.topK))
 		}
-		if m.thinkingBudget > 0 {
+		if m.adaptiveThinking {
+			hasThinking = true
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
+		} else if m.thinkingBudget > 0 {
 			hasThinking = true
 			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
 		}
@@ -839,6 +899,13 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 			Str("prompt_preview", truncateString(prompt, 100)).
 			Msg("Anthropic generation failed")
 		return nil, fmt.Errorf("anthropic generation failed: %w", err)
+	}
+
+	// Safety classifiers (notably on Claude Fable 5) can decline a request with
+	// HTTP 200 and stop_reason "refusal"; content is empty (pre-output) or partial
+	// (mid-stream). Surface this explicitly instead of a generic empty-content error.
+	if resp.StopReason == anthropic.StopReasonRefusal {
+		return nil, fmt.Errorf("anthropic declined the request (stop_reason: refusal) for model %s; retry on a different model such as claude-opus-4-8", model.ModelName())
 	}
 
 	if len(resp.Content) == 0 {
