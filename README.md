@@ -18,9 +18,9 @@ A unified Go gateway for multiple LLM providers. Lingo provides a consistent int
 
 | Provider | Models |
 |----------|--------|
-| **OpenAI** | GPT-4o, GPT-4o-mini, GPT-4 Turbo, o1, o1-mini, o3-mini |
-| **Anthropic** | Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus |
-| **Google Gemini** | Gemini 2.5 Pro/Flash, Gemini 2.0 Flash, Gemini 1.5 Pro/Flash |
+| **OpenAI** | GPT-5.5/5.5 Pro, GPT-5.4 (Pro/mini/nano), GPT-5.1 (incl. Codex), GPT-5, o-series, GPT-4o |
+| **Anthropic** | Claude Fable 5, Claude Opus 4.8/4.7/4.6, Claude Sonnet 4.6, Claude Haiku 4.5 (+ earlier Claude 4/3.x) |
+| **Google Gemini** | Gemini 3.1 Pro, Gemini 3.5 Flash, Gemini 3.1 Flash-Lite, Gemini 3 Pro/Flash, Gemini 2.5 Pro/Flash |
 | **AWS Bedrock** | Claude, Llama, Titan, and other Bedrock models |
 | **Perplexity** | Sonar, Sonar Pro, Sonar Reasoning |
 | **Ollama** | Any locally running Ollama model |
@@ -91,12 +91,14 @@ config := &lingo.OpenAIConfig{
     RateLimiter: lingo.DefaultRateLimitConfig(),
 }
 
-// Available models
-model := lingo.NewGPT4o()
-model := lingo.NewGPT4oMini()
-model := lingo.NewO1()
-model := lingo.NewO1Mini()
-model := lingo.NewO3Mini()
+// Available models (latest first)
+model := lingo.NewGPT55()     // GPT-5.5 (frontier)
+model := lingo.NewGPT55Pro()  // GPT-5.5 Pro
+model := lingo.NewGPT54()      // GPT-5.4
+model := lingo.NewGPT54Mini()
+model := lingo.NewGPT54Nano()
+model := lingo.NewGPT51()      // GPT-5.1
+model := lingo.NewGPT4o()      // legacy
 ```
 
 ### Anthropic
@@ -107,10 +109,13 @@ config := &lingo.AnthropicConfig{
     Timeout: 60 * time.Second,
 }
 
-// Available models
-model := lingo.NewClaude35Sonnet()
-model := lingo.NewClaude35Haiku()
-model := lingo.NewClaude3Opus()
+// Available models (latest first)
+model := lingo.NewClaudeFable5()  // most capable
+model := lingo.NewClaudeOpus48()  // current recommended Opus
+model := lingo.NewClaudeOpus47()
+model := lingo.NewClaudeOpus46()
+model := lingo.NewClaudeSonnet46()
+model := lingo.NewClaudeHaiku45()
 ```
 
 ### Google Gemini
@@ -121,11 +126,13 @@ config := &lingo.GoogleConfig{
     Timeout: 60 * time.Second,
 }
 
-// Available models
+// Available models (latest first)
+model := lingo.NewGemini31Pro()        // Gemini 3.1 Pro (preview)
+model := lingo.NewGemini35Flash()      // Gemini 3.5 Flash
+model := lingo.NewGemini31FlashLite()  // Gemini 3.1 Flash-Lite
+model := lingo.NewGemini3Pro()
 model := lingo.NewGemini25Pro()
 model := lingo.NewGemini25Flash()
-model := lingo.NewGemini20Flash()
-model := lingo.NewGemini15Pro()
 ```
 
 ### AWS Bedrock

@@ -124,7 +124,8 @@ func NewGemini25FlashLite() *Gemini25FlashLite {
 	return &Gemini25FlashLite{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
-// Gemini20Flash represents the Gemini 2.0 Flash model
+// Gemini20Flash represents the Gemini 2.0 Flash model.
+// Deprecated: scheduled for shutdown March 31, 2026. Migrate to Gemini25Flash.
 type Gemini20Flash struct{ googleOptions }
 
 func (m *Gemini20Flash) ModelName() string      { return "gemini-2.0-flash" }
@@ -142,7 +143,8 @@ func NewGemini20Flash() *Gemini20Flash {
 	return &Gemini20Flash{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
-// Gemini20FlashLite represents the Gemini 2.0 Flash Lite model
+// Gemini20FlashLite represents the Gemini 2.0 Flash Lite model.
+// Deprecated: scheduled for shutdown March 31, 2026. Migrate to Gemini25FlashLite.
 type Gemini20FlashLite struct{ googleOptions }
 
 func (m *Gemini20FlashLite) ModelName() string      { return "gemini-2.0-flash-lite" }
@@ -234,7 +236,8 @@ func NewGemini15Flash8b() *Gemini15Flash8b {
 	return &Gemini15Flash8b{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
-// Gemini20FlashExp represents the Gemini 2.0 Flash Experimental model
+// Gemini20FlashExp represents the Gemini 2.0 Flash Experimental model.
+// Deprecated: scheduled for shutdown March 31, 2026. Migrate to Gemini25Flash.
 type Gemini20FlashExp struct{ googleOptions }
 
 func (m *Gemini20FlashExp) ModelName() string      { return "gemini-2.0-flash-exp" }
@@ -252,7 +255,8 @@ func NewGemini20FlashExp() *Gemini20FlashExp {
 	return &Gemini20FlashExp{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
-// Gemini20FlashThinking represents the Gemini 2.0 Flash Thinking Experimental model
+// Gemini20FlashThinking represents the Gemini 2.0 Flash Thinking Experimental model.
+// Note: experimental model, not listed in stable API docs.
 type Gemini20FlashThinking struct{ googleOptions }
 
 func (m *Gemini20FlashThinking) ModelName() string      { return "gemini-2.0-flash-thinking-exp" }
@@ -279,7 +283,8 @@ func NewGemini20FlashThinking() *Gemini20FlashThinking {
 	return &Gemini20FlashThinking{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
-// Gemini20ProExp represents the Gemini 2.0 Pro Experimental model
+// Gemini20ProExp represents the Gemini 2.0 Pro Experimental model.
+// Note: experimental model, not listed in stable API docs.
 type Gemini20ProExp struct{ googleOptions }
 
 func (m *Gemini20ProExp) ModelName() string      { return "gemini-2.0-pro-exp" }
@@ -297,15 +302,15 @@ func NewGemini20ProExp() *Gemini20ProExp {
 	return &Gemini20ProExp{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
-// Gemini3Pro represents the Gemini 3 Pro model
-// Versions: gemini-3-pro, gemini-3-pro-latest
+// Gemini3Pro represents the Gemini 3 Pro model (preview).
+// Versions: gemini-3-pro-preview
 type Gemini3Pro struct{ googleOptions }
 
 func (m *Gemini3Pro) ModelName() string {
 	if m.modelVersion != "" {
 		return m.modelVersion
 	}
-	return "gemini-3-pro"
+	return "gemini-3-pro-preview"
 }
 func (m *Gemini3Pro) Provider() ProviderType { return ProviderGoogle }
 func (m *Gemini3Pro) SystemPrompt() string   { return m.systemPrompt }
@@ -322,15 +327,15 @@ func NewGemini3Pro() *Gemini3Pro {
 	return &Gemini3Pro{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
-// Gemini3Flash represents the Gemini 3 Flash model
-// Versions: gemini-3-flash, gemini-3-flash-latest
+// Gemini3Flash represents the Gemini 3 Flash model (preview).
+// Versions: gemini-3-flash-preview
 type Gemini3Flash struct{ googleOptions }
 
 func (m *Gemini3Flash) ModelName() string {
 	if m.modelVersion != "" {
 		return m.modelVersion
 	}
-	return "gemini-3-flash"
+	return "gemini-3-flash-preview"
 }
 func (m *Gemini3Flash) Provider() ProviderType { return ProviderGoogle }
 func (m *Gemini3Flash) SystemPrompt() string   { return m.systemPrompt }
@@ -347,22 +352,70 @@ func NewGemini3Flash() *Gemini3Flash {
 	return &Gemini3Flash{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
-// Gemini3Ultra represents the Gemini 3 Ultra model
-type Gemini3Ultra struct{ googleOptions }
+// Gemini31Pro represents the Gemini 3.1 Pro model (preview).
+// Top-tier reasoning and complex problem-solving. Versions: gemini-3.1-pro-preview
+type Gemini31Pro struct{ googleOptions }
 
-func (m *Gemini3Ultra) ModelName() string      { return "gemini-3-ultra" }
-func (m *Gemini3Ultra) Provider() ProviderType { return ProviderGoogle }
-func (m *Gemini3Ultra) SystemPrompt() string   { return m.systemPrompt }
+func (m *Gemini31Pro) ModelName() string {
+	if m.modelVersion != "" {
+		return m.modelVersion
+	}
+	return "gemini-3.1-pro-preview"
+}
+func (m *Gemini31Pro) Provider() ProviderType { return ProviderGoogle }
+func (m *Gemini31Pro) SystemPrompt() string   { return m.systemPrompt }
 
-func (m *Gemini3Ultra) WithMaxTokens(n int) *Gemini3Ultra       { m.maxTokens = n; return m }
-func (m *Gemini3Ultra) WithTemperature(t float64) *Gemini3Ultra { m.temperature = t; return m }
-func (m *Gemini3Ultra) WithTopP(p float64) *Gemini3Ultra        { m.topP = p; return m }
-func (m *Gemini3Ultra) WithTopK(k int) *Gemini3Ultra            { m.topK = k; return m }
-func (m *Gemini3Ultra) WithSystemPrompt(s string) *Gemini3Ultra { m.systemPrompt = s; return m }
+func (m *Gemini31Pro) WithVersion(v string) *Gemini31Pro      { m.modelVersion = v; return m }
+func (m *Gemini31Pro) WithMaxTokens(n int) *Gemini31Pro       { m.maxTokens = n; return m }
+func (m *Gemini31Pro) WithTemperature(t float64) *Gemini31Pro { m.temperature = t; return m }
+func (m *Gemini31Pro) WithTopP(p float64) *Gemini31Pro        { m.topP = p; return m }
+func (m *Gemini31Pro) WithTopK(k int) *Gemini31Pro            { m.topK = k; return m }
+func (m *Gemini31Pro) WithSystemPrompt(s string) *Gemini31Pro { m.systemPrompt = s; return m }
 
-// NewGemini3Ultra creates a new Gemini 3 Ultra model with default options
-func NewGemini3Ultra() *Gemini3Ultra {
-	return &Gemini3Ultra{googleOptions{maxTokens: 8192, temperature: 1.0}}
+// NewGemini31Pro creates a new Gemini 3.1 Pro model with default options
+func NewGemini31Pro() *Gemini31Pro {
+	return &Gemini31Pro{googleOptions{maxTokens: 8192, temperature: 1.0}}
+}
+
+// Gemini35Flash represents the Gemini 3.5 Flash model (stable/GA).
+// The most intelligent Flash model for sustained frontier performance on agentic and coding tasks.
+type Gemini35Flash struct{ googleOptions }
+
+func (m *Gemini35Flash) ModelName() string      { return "gemini-3.5-flash" }
+func (m *Gemini35Flash) Provider() ProviderType { return ProviderGoogle }
+func (m *Gemini35Flash) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Gemini35Flash) WithMaxTokens(n int) *Gemini35Flash       { m.maxTokens = n; return m }
+func (m *Gemini35Flash) WithTemperature(t float64) *Gemini35Flash { m.temperature = t; return m }
+func (m *Gemini35Flash) WithTopP(p float64) *Gemini35Flash        { m.topP = p; return m }
+func (m *Gemini35Flash) WithTopK(k int) *Gemini35Flash            { m.topK = k; return m }
+func (m *Gemini35Flash) WithSystemPrompt(s string) *Gemini35Flash { m.systemPrompt = s; return m }
+
+// NewGemini35Flash creates a new Gemini 3.5 Flash model with default options
+func NewGemini35Flash() *Gemini35Flash {
+	return &Gemini35Flash{googleOptions{maxTokens: 8192, temperature: 1.0}}
+}
+
+// Gemini31FlashLite represents the Gemini 3.1 Flash-Lite model (stable).
+// The most cost-efficient Gemini model, optimized for low-latency, high-volume traffic.
+type Gemini31FlashLite struct{ googleOptions }
+
+func (m *Gemini31FlashLite) ModelName() string      { return "gemini-3.1-flash-lite" }
+func (m *Gemini31FlashLite) Provider() ProviderType { return ProviderGoogle }
+func (m *Gemini31FlashLite) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Gemini31FlashLite) WithMaxTokens(n int) *Gemini31FlashLite       { m.maxTokens = n; return m }
+func (m *Gemini31FlashLite) WithTemperature(t float64) *Gemini31FlashLite { m.temperature = t; return m }
+func (m *Gemini31FlashLite) WithTopP(p float64) *Gemini31FlashLite        { m.topP = p; return m }
+func (m *Gemini31FlashLite) WithTopK(k int) *Gemini31FlashLite            { m.topK = k; return m }
+func (m *Gemini31FlashLite) WithSystemPrompt(s string) *Gemini31FlashLite {
+	m.systemPrompt = s
+	return m
+}
+
+// NewGemini31FlashLite creates a new Gemini 3.1 Flash-Lite model with default options
+func NewGemini31FlashLite() *Gemini31FlashLite {
+	return &Gemini31FlashLite{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
 // ============================================================================
@@ -435,7 +488,11 @@ func getGoogleOptions(model Model) *googleOptions {
 		return &m.googleOptions
 	case *Gemini3Flash:
 		return &m.googleOptions
-	case *Gemini3Ultra:
+	case *Gemini31Pro:
+		return &m.googleOptions
+	case *Gemini35Flash:
+		return &m.googleOptions
+	case *Gemini31FlashLite:
 		return &m.googleOptions
 	default:
 		return nil
@@ -588,7 +645,7 @@ func (c *googleClient) Health(ctx context.Context) error {
 		},
 	}
 
-	_, err := c.client.Models.GenerateContent(ctx, "gemini-2.0-flash-lite", contents, config)
+	_, err := c.client.Models.GenerateContent(ctx, "gemini-2.5-flash-lite", contents, config)
 	if err != nil {
 		return fmt.Errorf("google AI health check failed: %w", err)
 	}

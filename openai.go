@@ -469,23 +469,6 @@ func NewGPT5Pro() *GPT5Pro {
 	return &GPT5Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
 }
 
-// GPT5Turbo represents the GPT-5-turbo reasoning model
-type GPT5Turbo struct{ openAIReasoningOptions }
-
-func (m *GPT5Turbo) ModelName() string      { return "gpt-5-turbo" }
-func (m *GPT5Turbo) Provider() ProviderType { return ProviderOpenAI }
-func (m *GPT5Turbo) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT5Turbo) isReasoning() bool      { return true }
-
-func (m *GPT5Turbo) WithMaxCompletionTokens(n int) *GPT5Turbo { m.maxCompletionTokens = n; return m }
-func (m *GPT5Turbo) WithReasoningEffort(e string) *GPT5Turbo  { m.reasoningEffort = e; return m }
-func (m *GPT5Turbo) WithSystemPrompt(s string) *GPT5Turbo     { m.systemPrompt = s; return m }
-
-// NewGPT5Turbo creates a new GPT-5-turbo model with default options
-func NewGPT5Turbo() *GPT5Turbo {
-	return &GPT5Turbo{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
-}
-
 // GPT51 represents the GPT-5.1 reasoning model
 type GPT51 struct{ openAIReasoningOptions }
 
@@ -575,6 +558,109 @@ func (m *GPT51CodexMini) WithSystemPrompt(s string) *GPT51CodexMini { m.systemPr
 // NewGPT51CodexMini creates a new GPT-5.1-codex-mini model with default options
 func NewGPT51CodexMini() *GPT51CodexMini {
 	return &GPT51CodexMini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+}
+
+// GPT54Nano represents the GPT-5.4-nano reasoning model (cheapest GPT-5.4-class model)
+type GPT54Nano struct{ openAIReasoningOptions }
+
+func (m *GPT54Nano) ModelName() string      { return "gpt-5.4-nano" }
+func (m *GPT54Nano) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT54Nano) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT54Nano) isReasoning() bool      { return true }
+
+func (m *GPT54Nano) WithMaxCompletionTokens(n int) *GPT54Nano { m.maxCompletionTokens = n; return m }
+func (m *GPT54Nano) WithReasoningEffort(e string) *GPT54Nano  { m.reasoningEffort = e; return m }
+func (m *GPT54Nano) WithSystemPrompt(s string) *GPT54Nano     { m.systemPrompt = s; return m }
+
+// NewGPT54Nano creates a new GPT-5.4-nano model with default options
+func NewGPT54Nano() *GPT54Nano {
+	return &GPT54Nano{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+}
+
+// GPT54Mini represents the GPT-5.4-mini reasoning model (strong mini model for coding and subagents)
+type GPT54Mini struct{ openAIReasoningOptions }
+
+func (m *GPT54Mini) ModelName() string      { return "gpt-5.4-mini" }
+func (m *GPT54Mini) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT54Mini) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT54Mini) isReasoning() bool      { return true }
+
+func (m *GPT54Mini) WithMaxCompletionTokens(n int) *GPT54Mini { m.maxCompletionTokens = n; return m }
+func (m *GPT54Mini) WithReasoningEffort(e string) *GPT54Mini  { m.reasoningEffort = e; return m }
+func (m *GPT54Mini) WithSystemPrompt(s string) *GPT54Mini     { m.systemPrompt = s; return m }
+
+// NewGPT54Mini creates a new GPT-5.4-mini model with default options
+func NewGPT54Mini() *GPT54Mini {
+	return &GPT54Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+}
+
+// GPT54 represents the GPT-5.4 reasoning model (affordable model for coding and professional work)
+type GPT54 struct{ openAIReasoningOptions }
+
+func (m *GPT54) ModelName() string      { return "gpt-5.4" }
+func (m *GPT54) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT54) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT54) isReasoning() bool      { return true }
+
+func (m *GPT54) WithMaxCompletionTokens(n int) *GPT54 { m.maxCompletionTokens = n; return m }
+func (m *GPT54) WithReasoningEffort(e string) *GPT54  { m.reasoningEffort = e; return m }
+func (m *GPT54) WithSystemPrompt(s string) *GPT54     { m.systemPrompt = s; return m }
+
+// NewGPT54 creates a new GPT-5.4 model with default options
+func NewGPT54() *GPT54 {
+	return &GPT54{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+}
+
+// GPT54Pro represents the GPT-5.4-pro reasoning model (higher-precision GPT-5.4)
+type GPT54Pro struct{ openAIReasoningOptions }
+
+func (m *GPT54Pro) ModelName() string      { return "gpt-5.4-pro" }
+func (m *GPT54Pro) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT54Pro) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT54Pro) isReasoning() bool      { return true }
+
+func (m *GPT54Pro) WithMaxCompletionTokens(n int) *GPT54Pro { m.maxCompletionTokens = n; return m }
+func (m *GPT54Pro) WithReasoningEffort(e string) *GPT54Pro  { m.reasoningEffort = e; return m }
+func (m *GPT54Pro) WithSystemPrompt(s string) *GPT54Pro     { m.systemPrompt = s; return m }
+
+// NewGPT54Pro creates a new GPT-5.4-pro model with default options
+func NewGPT54Pro() *GPT54Pro {
+	return &GPT54Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
+}
+
+// GPT55 represents the GPT-5.5 reasoning model
+// GPT-5.5 is OpenAI's frontier model for the most complex coding and professional work.
+type GPT55 struct{ openAIReasoningOptions }
+
+func (m *GPT55) ModelName() string      { return "gpt-5.5" }
+func (m *GPT55) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT55) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT55) isReasoning() bool      { return true }
+
+func (m *GPT55) WithMaxCompletionTokens(n int) *GPT55 { m.maxCompletionTokens = n; return m }
+func (m *GPT55) WithReasoningEffort(e string) *GPT55  { m.reasoningEffort = e; return m }
+func (m *GPT55) WithSystemPrompt(s string) *GPT55     { m.systemPrompt = s; return m }
+
+// NewGPT55 creates a new GPT-5.5 model with default options
+func NewGPT55() *GPT55 {
+	return &GPT55{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+}
+
+// GPT55Pro represents the GPT-5.5-pro reasoning model (smarter, more precise GPT-5.5)
+type GPT55Pro struct{ openAIReasoningOptions }
+
+func (m *GPT55Pro) ModelName() string      { return "gpt-5.5-pro" }
+func (m *GPT55Pro) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT55Pro) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT55Pro) isReasoning() bool      { return true }
+
+func (m *GPT55Pro) WithMaxCompletionTokens(n int) *GPT55Pro { m.maxCompletionTokens = n; return m }
+func (m *GPT55Pro) WithReasoningEffort(e string) *GPT55Pro  { m.reasoningEffort = e; return m }
+func (m *GPT55Pro) WithSystemPrompt(s string) *GPT55Pro     { m.systemPrompt = s; return m }
+
+// NewGPT55Pro creates a new GPT-5.5-pro model with default options
+func NewGPT55Pro() *GPT55Pro {
+	return &GPT55Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
 }
 
 // O3Pro represents the O3-pro reasoning model
@@ -857,13 +943,6 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 		if m.reasoningEffort != "" {
 			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
-	case *GPT5Turbo:
-		if m.maxCompletionTokens > 0 {
-			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT51:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
@@ -893,6 +972,48 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT51CodexMini:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT54Nano:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT54Mini:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT54:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT54Pro:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT55:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT55Pro:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
