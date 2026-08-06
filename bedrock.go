@@ -480,6 +480,56 @@ func NewBedrockClaudeFable5() *BedrockClaudeFable5 {
 	}}
 }
 
+// BedrockClaudeOpus5 represents Claude Opus 5 on Bedrock (current recommended).
+// Opus 5 rejects sampling parameters (temperature/topP/topK) with a 400 error,
+// so this type does not expose setters for them. Thinking is adaptive and on
+// by default.
+type BedrockClaudeOpus5 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeOpus5) ModelName() string      { return "anthropic.claude-opus-5" }
+func (m *BedrockClaudeOpus5) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeOpus5) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeOpus5) WithMaxTokens(n int) *BedrockClaudeOpus5 { m.maxTokens = n; return m }
+func (m *BedrockClaudeOpus5) WithSystemPrompt(s string) *BedrockClaudeOpus5 {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockClaudeOpus5 creates a new Claude Opus 5 model for Bedrock
+func NewBedrockClaudeOpus5() *BedrockClaudeOpus5 {
+	return &BedrockClaudeOpus5{bedrockClaudeOptions{
+		maxTokens:        8192,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
+// BedrockClaudeSonnet5 represents Claude Sonnet 5 on Bedrock.
+// Sonnet 5 rejects non-default sampling parameters (temperature/topP/topK) with
+// a 400 error, so this type does not expose setters for them. Thinking is
+// adaptive and on by default.
+// Note: on Bedrock, a forced tool choice additionally requires thinking to be
+// disabled — a constraint that does not apply on the first-party Claude API.
+type BedrockClaudeSonnet5 struct{ bedrockClaudeOptions }
+
+func (m *BedrockClaudeSonnet5) ModelName() string      { return "anthropic.claude-sonnet-5" }
+func (m *BedrockClaudeSonnet5) Provider() ProviderType { return ProviderBedrock }
+func (m *BedrockClaudeSonnet5) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *BedrockClaudeSonnet5) WithMaxTokens(n int) *BedrockClaudeSonnet5 { m.maxTokens = n; return m }
+func (m *BedrockClaudeSonnet5) WithSystemPrompt(s string) *BedrockClaudeSonnet5 {
+	m.systemPrompt = s
+	return m
+}
+
+// NewBedrockClaudeSonnet5 creates a new Claude Sonnet 5 model for Bedrock
+func NewBedrockClaudeSonnet5() *BedrockClaudeSonnet5 {
+	return &BedrockClaudeSonnet5{bedrockClaudeOptions{
+		maxTokens:        8192,
+		anthropicVersion: "bedrock-2023-05-31",
+	}}
+}
+
 // BedrockClaude3Sonnet represents Claude 3 Sonnet on Bedrock
 type BedrockClaude3Sonnet struct{ bedrockClaudeOptions }
 
@@ -1588,8 +1638,9 @@ func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, 
 		if m.systemPrompt != "" {
 			req.System = m.systemPrompt
 		}
-	// Opus 4.7/4.8 and Fable 5 reject sampling parameters (temperature/topP/topK)
-	// with a 400 error; only max_tokens and the system prompt are sent.
+	// Opus 4.7/4.8, Fable 5 and the Claude 5 series reject sampling parameters
+	// (temperature/topP/topK) with a 400 error; only max_tokens and the system
+	// prompt are sent.
 	case *BedrockClaudeOpus47:
 		if m.maxTokens > 0 {
 			req.MaxTokens = m.maxTokens
@@ -1605,6 +1656,20 @@ func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, 
 			req.System = m.systemPrompt
 		}
 	case *BedrockClaudeFable5:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeOpus5:
+		if m.maxTokens > 0 {
+			req.MaxTokens = m.maxTokens
+		}
+		if m.systemPrompt != "" {
+			req.System = m.systemPrompt
+		}
+	case *BedrockClaudeSonnet5:
 		if m.maxTokens > 0 {
 			req.MaxTokens = m.maxTokens
 		}

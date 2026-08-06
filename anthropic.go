@@ -56,9 +56,31 @@ type anthropicOptions struct {
 // anthropicThinkingOptions contains options for models that support extended thinking
 type anthropicThinkingOptions struct {
 	anthropicOptions
-	thinkingBudget   int  // Must be >= 1024 and less than maxTokens (legacy models only)
-	adaptiveThinking bool // Claude 4.6+; the model decides when and how much to think
+	thinkingBudget   int             // Must be >= 1024 and less than maxTokens (legacy models only)
+	adaptiveThinking bool            // Claude 4.6+; the model decides when and how much to think
+	thinkingDisabled bool            // Claude 5 series; opt out of the on-by-default adaptive thinking
+	effort           AnthropicEffort // Claude 4.6+; output_config.effort
 }
+
+// AnthropicEffort controls thinking depth and overall token spend for a request
+// (the API's output_config.effort). Higher effort means deeper reasoning at
+// greater cost and latency. The API default is EffortHigh.
+type AnthropicEffort string
+
+const (
+	// EffortLow suits short, scoped tasks and latency-sensitive workloads.
+	EffortLow AnthropicEffort = "low"
+	// EffortMedium trades some intelligence for reduced token usage.
+	EffortMedium AnthropicEffort = "medium"
+	// EffortHigh is the API default and the recommended minimum for
+	// intelligence-sensitive work.
+	EffortHigh AnthropicEffort = "high"
+	// EffortXHigh sits between high and max and is the best setting for most
+	// coding and agentic use cases. Claude 4.7 and later only.
+	EffortXHigh AnthropicEffort = "xhigh"
+	// EffortMax is the deepest setting; use when correctness matters more than cost.
+	EffortMax AnthropicEffort = "max"
+)
 
 // ============================================================================
 // STANDARD MODELS (Claude 3.5 series and earlier)
@@ -332,7 +354,7 @@ func NewClaudeHaiku45() *ClaudeHaiku45 {
 }
 
 // ClaudeOpus41 represents the Claude Opus 4.1 model (supports extended thinking).
-// Deprecated: scheduled for retirement by Anthropic on Aug 5, 2026. Migrate to ClaudeOpus48.
+// Deprecated: retired by Anthropic (Aug 5, 2026); the API returns 404. Migrate to ClaudeOpus5.
 // Versions: claude-opus-4-1-20250805, claude-opus-4-1
 type ClaudeOpus41 struct{ anthropicThinkingOptions }
 
@@ -384,6 +406,10 @@ func (m *ClaudeOpus46) WithAdaptiveThinking() *ClaudeOpus46 { m.adaptiveThinking
 // Deprecated: fixed budgets are deprecated on Claude 4.6 models; use WithAdaptiveThinking.
 func (m *ClaudeOpus46) WithThinkingBudget(n int) *ClaudeOpus46 { m.thinkingBudget = n; return m }
 
+// WithEffort sets output_config.effort. Opus 4.6 supports low, medium, high
+// and max; EffortXHigh arrived with Opus 4.7 and is rejected here.
+func (m *ClaudeOpus46) WithEffort(e AnthropicEffort) *ClaudeOpus46 { m.effort = e; return m }
+
 // NewClaudeOpus46 creates a new Claude Opus 4.6 model with default options
 func NewClaudeOpus46() *ClaudeOpus46 {
 	return &ClaudeOpus46{anthropicThinkingOptions{
@@ -414,6 +440,10 @@ func (m *ClaudeSonnet46) WithAdaptiveThinking() *ClaudeSonnet46 { m.adaptiveThin
 // Deprecated: fixed budgets are deprecated on Claude 4.6 models; use WithAdaptiveThinking.
 func (m *ClaudeSonnet46) WithThinkingBudget(n int) *ClaudeSonnet46 { m.thinkingBudget = n; return m }
 
+// WithEffort sets output_config.effort. Sonnet 4.6 supports low, medium, high
+// and max; EffortXHigh arrived with Opus 4.7 and is rejected here.
+func (m *ClaudeSonnet46) WithEffort(e AnthropicEffort) *ClaudeSonnet46 { m.effort = e; return m }
+
 // NewClaudeSonnet46 creates a new Claude Sonnet 4.6 model with default options
 func NewClaudeSonnet46() *ClaudeSonnet46 {
 	return &ClaudeSonnet46{anthropicThinkingOptions{
@@ -438,6 +468,9 @@ func (m *ClaudeOpus47) WithSystemPrompt(s string) *ClaudeOpus47 { m.systemPrompt
 // WithAdaptiveThinking enables adaptive thinking: the model decides when and how
 // much to think. Without it, Opus 4.7 runs without thinking.
 func (m *ClaudeOpus47) WithAdaptiveThinking() *ClaudeOpus47 { m.adaptiveThinking = true; return m }
+
+// WithEffort sets output_config.effort (low through max).
+func (m *ClaudeOpus47) WithEffort(e AnthropicEffort) *ClaudeOpus47 { m.effort = e; return m }
 
 // NewClaudeOpus47 creates a new Claude Opus 4.7 model with default options
 func NewClaudeOpus47() *ClaudeOpus47 {
@@ -465,6 +498,9 @@ func (m *ClaudeOpus48) WithSystemPrompt(s string) *ClaudeOpus48 { m.systemPrompt
 // much to think. Without it, Opus 4.8 runs without thinking.
 func (m *ClaudeOpus48) WithAdaptiveThinking() *ClaudeOpus48 { m.adaptiveThinking = true; return m }
 
+// WithEffort sets output_config.effort (low through max).
+func (m *ClaudeOpus48) WithEffort(e AnthropicEffort) *ClaudeOpus48 { m.effort = e; return m }
+
 // NewClaudeOpus48 creates a new Claude Opus 4.8 model with default options
 func NewClaudeOpus48() *ClaudeOpus48 {
 	return &ClaudeOpus48{anthropicThinkingOptions{
@@ -490,9 +526,88 @@ func (m *ClaudeFable5) supportsThinking() bool { return true }
 func (m *ClaudeFable5) WithMaxTokens(n int) *ClaudeFable5       { m.maxTokens = n; return m }
 func (m *ClaudeFable5) WithSystemPrompt(s string) *ClaudeFable5 { m.systemPrompt = s; return m }
 
+// WithEffort sets output_config.effort (low through max). This is the only
+// depth control on Fable 5, since thinking itself cannot be configured.
+func (m *ClaudeFable5) WithEffort(e AnthropicEffort) *ClaudeFable5 { m.effort = e; return m }
+
 // NewClaudeFable5 creates a new Claude Fable 5 model with default options
 func NewClaudeFable5() *ClaudeFable5 {
 	return &ClaudeFable5{anthropicThinkingOptions{
+		anthropicOptions: anthropicOptions{maxTokens: 8192},
+	}}
+}
+
+// ClaudeOpus5 represents the Claude Opus 5 model.
+// This is the current recommended model for complex agentic coding and
+// long-horizon work, priced the same as Opus 4.8 with a 1M context window.
+// Unlike Opus 4.7/4.8, thinking is ON by default (adaptive) — call
+// WithThinkingDisabled to opt out. Sampling parameters (temperature/topP/topK)
+// and fixed thinking budgets are rejected by the API with a 400 error, so this
+// type does not expose setters for them; use WithEffort to control depth.
+// Note: Opus 5 has elevated cybersecurity safeguards and may decline a request
+// with stop_reason "refusal" (surfaced by this library as a refusal error).
+type ClaudeOpus5 struct{ anthropicThinkingOptions }
+
+func (m *ClaudeOpus5) ModelName() string      { return "claude-opus-5" }
+func (m *ClaudeOpus5) Provider() ProviderType { return ProviderAnthropic }
+func (m *ClaudeOpus5) SystemPrompt() string   { return m.systemPrompt }
+func (m *ClaudeOpus5) supportsThinking() bool { return true }
+
+func (m *ClaudeOpus5) WithMaxTokens(n int) *ClaudeOpus5       { m.maxTokens = n; return m }
+func (m *ClaudeOpus5) WithSystemPrompt(s string) *ClaudeOpus5 { m.systemPrompt = s; return m }
+
+// WithEffort sets output_config.effort. Opus 5 supports the full ladder
+// (low through max). Start at EffortXHigh for coding and agentic work and
+// EffortHigh elsewhere, then sweep down — low and medium perform unusually
+// well on this model.
+func (m *ClaudeOpus5) WithEffort(e AnthropicEffort) *ClaudeOpus5 { m.effort = e; return m }
+
+// WithThinkingDisabled turns off the on-by-default adaptive thinking.
+// The API accepts this only at EffortHigh or below; pairing it with
+// EffortXHigh or EffortMax returns a 400 error. Prefer a lower effort level
+// over disabling thinking: with thinking off, Opus 5 can emit tool calls as
+// plain text and leak internal XML tags into the response.
+func (m *ClaudeOpus5) WithThinkingDisabled() *ClaudeOpus5 { m.thinkingDisabled = true; return m }
+
+// NewClaudeOpus5 creates a new Claude Opus 5 model with default options
+func NewClaudeOpus5() *ClaudeOpus5 {
+	return &ClaudeOpus5{anthropicThinkingOptions{
+		anthropicOptions: anthropicOptions{maxTokens: 8192},
+	}}
+}
+
+// ClaudeSonnet5 represents the Claude Sonnet 5 model.
+// This is the current recommended model for the speed/intelligence balance,
+// reaching near-Opus quality on coding and agentic work with a 1M context
+// window. Thinking is adaptive and ON by default — call WithThinkingDisabled
+// to opt out. Non-default sampling parameters (temperature/topP/topK) and
+// fixed thinking budgets are rejected by the API with a 400 error, so this
+// type does not expose setters for them; use WithEffort to control depth.
+// Note: Sonnet 5 uses a new tokenizer that produces roughly 30% more tokens
+// than Sonnet 4.6 for the same text — re-baseline token budgets when migrating.
+type ClaudeSonnet5 struct{ anthropicThinkingOptions }
+
+func (m *ClaudeSonnet5) ModelName() string      { return "claude-sonnet-5" }
+func (m *ClaudeSonnet5) Provider() ProviderType { return ProviderAnthropic }
+func (m *ClaudeSonnet5) SystemPrompt() string   { return m.systemPrompt }
+func (m *ClaudeSonnet5) supportsThinking() bool { return true }
+
+func (m *ClaudeSonnet5) WithMaxTokens(n int) *ClaudeSonnet5       { m.maxTokens = n; return m }
+func (m *ClaudeSonnet5) WithSystemPrompt(s string) *ClaudeSonnet5 { m.systemPrompt = s; return m }
+
+// WithEffort sets output_config.effort. Sonnet 5 supports the full ladder
+// (low through max) and defaults to EffortHigh; raise to EffortXHigh for the
+// hardest coding and agentic tasks.
+func (m *ClaudeSonnet5) WithEffort(e AnthropicEffort) *ClaudeSonnet5 { m.effort = e; return m }
+
+// WithThinkingDisabled turns off the on-by-default adaptive thinking.
+// Prefer adaptive thinking at EffortLow instead: with thinking off, Sonnet 5
+// is markedly less likely to reach for tools.
+func (m *ClaudeSonnet5) WithThinkingDisabled() *ClaudeSonnet5 { m.thinkingDisabled = true; return m }
+
+// NewClaudeSonnet5 creates a new Claude Sonnet 5 model with default options
+func NewClaudeSonnet5() *ClaudeSonnet5 {
+	return &ClaudeSonnet5{anthropicThinkingOptions{
 		anthropicOptions: anthropicOptions{maxTokens: 8192},
 	}}
 }
@@ -527,6 +642,13 @@ func (m *AnthropicModel) WithAdaptiveThinking() *AnthropicModel { m.adaptiveThin
 
 // WithThinkingBudget sets a fixed thinking token budget (legacy models only).
 func (m *AnthropicModel) WithThinkingBudget(n int) *AnthropicModel { m.thinkingBudget = n; return m }
+
+// WithEffort sets output_config.effort (Claude 4.6+).
+func (m *AnthropicModel) WithEffort(e AnthropicEffort) *AnthropicModel { m.effort = e; return m }
+
+// WithThinkingDisabled explicitly disables thinking (Claude 5 series, where
+// adaptive thinking is on by default).
+func (m *AnthropicModel) WithThinkingDisabled() *AnthropicModel { m.thinkingDisabled = true; return m }
 
 // NewAnthropicModel creates a generic Anthropic model with the specified model ID
 func NewAnthropicModel(modelID string) *AnthropicModel {
@@ -795,6 +917,9 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
 		}
+		if m.effort != "" {
+			params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
+		}
 		if m.temperature > 0 {
 			params.Temperature = anthropic.Float(m.temperature)
 		}
@@ -815,6 +940,9 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
 		}
+		if m.effort != "" {
+			params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
+		}
 		if m.temperature > 0 {
 			params.Temperature = anthropic.Float(m.temperature)
 		}
@@ -832,10 +960,13 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(m.thinkingBudget))
 		}
 	// Opus 4.7/4.8 reject sampling parameters and fixed thinking budgets;
-	// only max_tokens and (optionally) adaptive thinking are sent.
+	// only max_tokens, effort and (optionally) adaptive thinking are sent.
 	case *ClaudeOpus47:
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
+		}
+		if m.effort != "" {
+			params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
 		}
 		if m.adaptiveThinking {
 			hasThinking = true
@@ -845,16 +976,47 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
 		}
+		if m.effort != "" {
+			params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
+		}
 		if m.adaptiveThinking {
 			hasThinking = true
 			params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
 		}
 	// Fable 5: thinking is always on and must not be configured; sampling
-	// parameters are rejected. Only max_tokens is sent.
+	// parameters are rejected. Only max_tokens and effort are sent.
 	case *ClaudeFable5:
 		hasThinking = true
 		if m.maxTokens > 0 {
 			params.MaxTokens = int64(m.maxTokens)
+		}
+		if m.effort != "" {
+			params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
+		}
+	// Claude 5 series: thinking is adaptive and on by default, so the thinking
+	// parameter is only sent to turn it off. Sampling parameters and fixed
+	// thinking budgets are rejected.
+	case *ClaudeOpus5:
+		hasThinking = !m.thinkingDisabled
+		if m.maxTokens > 0 {
+			params.MaxTokens = int64(m.maxTokens)
+		}
+		if m.effort != "" {
+			params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
+		}
+		if m.thinkingDisabled {
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}}
+		}
+	case *ClaudeSonnet5:
+		hasThinking = !m.thinkingDisabled
+		if m.maxTokens > 0 {
+			params.MaxTokens = int64(m.maxTokens)
+		}
+		if m.effort != "" {
+			params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
+		}
+		if m.thinkingDisabled {
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}}
 		}
 
 	// Generic model: sends whatever the caller set.
@@ -871,7 +1033,12 @@ func (c *anthropicClient) Generate(ctx context.Context, model Model, prompt stri
 		if m.topK > 0 {
 			params.TopK = anthropic.Int(int64(m.topK))
 		}
-		if m.adaptiveThinking {
+		if m.effort != "" {
+			params.OutputConfig.Effort = anthropic.OutputConfigEffort(m.effort)
+		}
+		if m.thinkingDisabled {
+			params.Thinking = anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}}
+		} else if m.adaptiveThinking {
 			hasThinking = true
 			params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
 		} else if m.thinkingBudget > 0 {

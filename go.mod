@@ -3,14 +3,14 @@ module github.com/gerdou/lingo
 go 1.25
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.56.0
+	github.com/anthropics/anthropic-sdk-go v1.61.0
 	github.com/aws/aws-sdk-go-v2 v1.41.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.6
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.47.1
 	github.com/openai/openai-go v1.12.0
 	github.com/rs/zerolog v1.34.0
-	google.golang.org/genai v1.40.0
+	google.golang.org/genai v1.67.0
 )
 
 require (

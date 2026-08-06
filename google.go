@@ -131,7 +131,7 @@ func NewGemini25FlashLite() *Gemini25FlashLite {
 }
 
 // Gemini20Flash represents the Gemini 2.0 Flash model.
-// Deprecated: shut down by Google on March 31, 2026; the API returns an error. Migrate to Gemini25Flash.
+// Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25Flash.
 type Gemini20Flash struct{ googleOptions }
 
 func (m *Gemini20Flash) ModelName() string      { return "gemini-2.0-flash" }
@@ -150,7 +150,7 @@ func NewGemini20Flash() *Gemini20Flash {
 }
 
 // Gemini20FlashLite represents the Gemini 2.0 Flash Lite model.
-// Deprecated: shut down by Google on March 31, 2026; the API returns an error. Migrate to Gemini25FlashLite.
+// Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25FlashLite.
 type Gemini20FlashLite struct{ googleOptions }
 
 func (m *Gemini20FlashLite) ModelName() string      { return "gemini-2.0-flash-lite" }
@@ -246,7 +246,7 @@ func NewGemini15Flash8b() *Gemini15Flash8b {
 }
 
 // Gemini20FlashExp represents the Gemini 2.0 Flash Experimental model.
-// Deprecated: shut down by Google on March 31, 2026; the API returns an error. Migrate to Gemini25Flash.
+// Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25Flash.
 type Gemini20FlashExp struct{ googleOptions }
 
 func (m *Gemini20FlashExp) ModelName() string      { return "gemini-2.0-flash-exp" }
@@ -312,6 +312,8 @@ func NewGemini20ProExp() *Gemini20ProExp {
 }
 
 // Gemini3Pro represents the Gemini 3 Pro model (preview).
+// Deprecated: Google redirects gemini-3-pro-preview to gemini-3.1-pro-preview
+// (since March 9, 2026). Use Gemini31Pro to target that model directly.
 // Versions: gemini-3-pro-preview
 type Gemini3Pro struct{ googleOptions }
 
@@ -430,6 +432,52 @@ func NewGemini31FlashLite() *Gemini31FlashLite {
 	return &Gemini31FlashLite{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
+// Gemini36Flash represents the Gemini 3.6 Flash model (stable/GA).
+// The current Flash flagship: improved token efficiency and code/agentic
+// planning at a lower price point than Gemini 3.5 Flash.
+type Gemini36Flash struct{ googleOptions }
+
+func (m *Gemini36Flash) ModelName() string      { return "gemini-3.6-flash" }
+func (m *Gemini36Flash) Provider() ProviderType { return ProviderGoogle }
+func (m *Gemini36Flash) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Gemini36Flash) WithMaxTokens(n int) *Gemini36Flash       { m.maxTokens = n; return m }
+func (m *Gemini36Flash) WithTemperature(t float64) *Gemini36Flash { m.temperature = t; return m }
+func (m *Gemini36Flash) WithTopP(p float64) *Gemini36Flash        { m.topP = p; return m }
+func (m *Gemini36Flash) WithTopK(k int) *Gemini36Flash            { m.topK = k; return m }
+func (m *Gemini36Flash) WithSystemPrompt(s string) *Gemini36Flash { m.systemPrompt = s; return m }
+
+// NewGemini36Flash creates a new Gemini 3.6 Flash model with default options
+func NewGemini36Flash() *Gemini36Flash {
+	return &Gemini36Flash{googleOptions{maxTokens: 8192, temperature: 1.0}}
+}
+
+// Gemini35FlashLite represents the Gemini 3.5 Flash-Lite model (stable/GA).
+// The fastest, most cost-effective model in the 3.5 series, for
+// high-throughput execution.
+type Gemini35FlashLite struct{ googleOptions }
+
+func (m *Gemini35FlashLite) ModelName() string      { return "gemini-3.5-flash-lite" }
+func (m *Gemini35FlashLite) Provider() ProviderType { return ProviderGoogle }
+func (m *Gemini35FlashLite) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *Gemini35FlashLite) WithMaxTokens(n int) *Gemini35FlashLite { m.maxTokens = n; return m }
+func (m *Gemini35FlashLite) WithTemperature(t float64) *Gemini35FlashLite {
+	m.temperature = t
+	return m
+}
+func (m *Gemini35FlashLite) WithTopP(p float64) *Gemini35FlashLite { m.topP = p; return m }
+func (m *Gemini35FlashLite) WithTopK(k int) *Gemini35FlashLite     { m.topK = k; return m }
+func (m *Gemini35FlashLite) WithSystemPrompt(s string) *Gemini35FlashLite {
+	m.systemPrompt = s
+	return m
+}
+
+// NewGemini35FlashLite creates a new Gemini 3.5 Flash-Lite model with default options
+func NewGemini35FlashLite() *Gemini35FlashLite {
+	return &Gemini35FlashLite{googleOptions{maxTokens: 8192, temperature: 1.0}}
+}
+
 // GoogleModel represents a generic Google Gemini model.
 // Use this for any Gemini model this library has no named type for
 // (e.g. new previews), so new model releases don't require a library update.
@@ -528,6 +576,10 @@ func getGoogleOptions(model Model) *googleOptions {
 	case *Gemini35Flash:
 		return &m.googleOptions
 	case *Gemini31FlashLite:
+		return &m.googleOptions
+	case *Gemini36Flash:
+		return &m.googleOptions
+	case *Gemini35FlashLite:
 		return &m.googleOptions
 	case *GoogleModel:
 		return &m.googleOptions

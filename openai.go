@@ -118,6 +118,7 @@ func NewGPT4oMini() *GPT4oMini {
 }
 
 // GPT4Turbo represents the GPT-4-turbo model
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Terra.
 // Versions: gpt-4-turbo, gpt-4-turbo-2024-04-09, gpt-4-turbo-preview
 type GPT4Turbo struct{ openAIStandardOptions }
 
@@ -143,6 +144,7 @@ func NewGPT4Turbo() *GPT4Turbo {
 }
 
 // GPT4 represents the GPT-4 model
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Terra.
 // Versions: gpt-4, gpt-4-0613
 type GPT4 struct{ openAIStandardOptions }
 
@@ -229,6 +231,7 @@ func NewGPT41Nano() *GPT41Nano {
 }
 
 // GPT35Turbo represents the GPT-3.5-turbo model
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Luna.
 // Versions: gpt-3.5-turbo, gpt-3.5-turbo-0125
 type GPT35Turbo struct{ openAIStandardOptions }
 
@@ -258,6 +261,7 @@ func NewGPT35Turbo() *GPT35Turbo {
 // ============================================================================
 
 // O1 represents the O1 reasoning model
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Sol.
 // Versions: o1, o1-2024-12-17
 type O1 struct{ openAIReasoningOptions }
 
@@ -331,6 +335,7 @@ func NewO1Pro() *O1Pro {
 }
 
 // O3 represents the O3 reasoning model
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 // Versions: o3, o3-2025-04-16
 type O3 struct{ openAIReasoningOptions }
 
@@ -403,6 +408,7 @@ func NewO4Mini() *O4Mini {
 }
 
 // GPT5 represents the GPT-5 reasoning model
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 type GPT5 struct{ openAIReasoningOptions }
 
 func (m *GPT5) ModelName() string      { return "gpt-5" }
@@ -420,6 +426,7 @@ func NewGPT5() *GPT5 {
 }
 
 // GPT5Mini represents the GPT-5-mini reasoning model
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Terra.
 type GPT5Mini struct{ openAIReasoningOptions }
 
 func (m *GPT5Mini) ModelName() string      { return "gpt-5-mini" }
@@ -437,6 +444,7 @@ func NewGPT5Mini() *GPT5Mini {
 }
 
 // GPT5Nano represents the GPT-5-nano reasoning model
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Luna.
 type GPT5Nano struct{ openAIReasoningOptions }
 
 func (m *GPT5Nano) ModelName() string      { return "gpt-5-nano" }
@@ -522,6 +530,7 @@ func NewGPT51Nano() *GPT51Nano {
 }
 
 // GPT51Codex represents the GPT-5.1-codex reasoning model
+// Deprecated: retired by OpenAI (Jul 23, 2026); the API returns 404. Migrate to GPT56Sol.
 type GPT51Codex struct{ openAIReasoningOptions }
 
 func (m *GPT51Codex) ModelName() string      { return "gpt-5.1-codex" }
@@ -539,6 +548,7 @@ func NewGPT51Codex() *GPT51Codex {
 }
 
 // GPT51CodexMini represents the GPT-5.1-codex-mini reasoning model
+// Deprecated: retired by OpenAI (Jul 23, 2026); the API returns 404. Migrate to GPT56Luna.
 type GPT51CodexMini struct{ openAIReasoningOptions }
 
 func (m *GPT51CodexMini) ModelName() string      { return "gpt-5.1-codex-mini" }
@@ -662,6 +672,64 @@ func (m *GPT55Pro) WithSystemPrompt(s string) *GPT55Pro     { m.systemPrompt = s
 // NewGPT55Pro creates a new GPT-5.5-pro model with default options
 func NewGPT55Pro() *GPT55Pro {
 	return &GPT55Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
+}
+
+// GPT56Sol represents the GPT-5.6 Sol reasoning model.
+// Sol is OpenAI's current frontier model for the most complex professional
+// work and is what the bare "gpt-5.6" alias resolves to.
+// 1.05M token context window, 128K max output tokens.
+type GPT56Sol struct{ openAIReasoningOptions }
+
+func (m *GPT56Sol) ModelName() string      { return "gpt-5.6-sol" }
+func (m *GPT56Sol) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT56Sol) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT56Sol) isReasoning() bool      { return true }
+
+func (m *GPT56Sol) WithMaxCompletionTokens(n int) *GPT56Sol { m.maxCompletionTokens = n; return m }
+func (m *GPT56Sol) WithReasoningEffort(e string) *GPT56Sol  { m.reasoningEffort = e; return m }
+func (m *GPT56Sol) WithSystemPrompt(s string) *GPT56Sol     { m.systemPrompt = s; return m }
+
+// NewGPT56Sol creates a new GPT-5.6 Sol model with default options
+func NewGPT56Sol() *GPT56Sol {
+	return &GPT56Sol{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+}
+
+// GPT56Terra represents the GPT-5.6 Terra reasoning model.
+// Terra balances intelligence and cost and is the general-purpose choice in
+// the GPT-5.6 family. 1.05M token context window, 128K max output tokens.
+type GPT56Terra struct{ openAIReasoningOptions }
+
+func (m *GPT56Terra) ModelName() string      { return "gpt-5.6-terra" }
+func (m *GPT56Terra) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT56Terra) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT56Terra) isReasoning() bool      { return true }
+
+func (m *GPT56Terra) WithMaxCompletionTokens(n int) *GPT56Terra { m.maxCompletionTokens = n; return m }
+func (m *GPT56Terra) WithReasoningEffort(e string) *GPT56Terra  { m.reasoningEffort = e; return m }
+func (m *GPT56Terra) WithSystemPrompt(s string) *GPT56Terra     { m.systemPrompt = s; return m }
+
+// NewGPT56Terra creates a new GPT-5.6 Terra model with default options
+func NewGPT56Terra() *GPT56Terra {
+	return &GPT56Terra{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+}
+
+// GPT56Luna represents the GPT-5.6 Luna reasoning model.
+// Luna is optimized for cost-sensitive, high-volume workloads.
+// 1.05M token context window, 128K max output tokens.
+type GPT56Luna struct{ openAIReasoningOptions }
+
+func (m *GPT56Luna) ModelName() string      { return "gpt-5.6-luna" }
+func (m *GPT56Luna) Provider() ProviderType { return ProviderOpenAI }
+func (m *GPT56Luna) SystemPrompt() string   { return m.systemPrompt }
+func (m *GPT56Luna) isReasoning() bool      { return true }
+
+func (m *GPT56Luna) WithMaxCompletionTokens(n int) *GPT56Luna { m.maxCompletionTokens = n; return m }
+func (m *GPT56Luna) WithReasoningEffort(e string) *GPT56Luna  { m.reasoningEffort = e; return m }
+func (m *GPT56Luna) WithSystemPrompt(s string) *GPT56Luna     { m.systemPrompt = s; return m }
+
+// NewGPT56Luna creates a new GPT-5.6 Luna model with default options
+func NewGPT56Luna() *GPT56Luna {
+	return &GPT56Luna{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "low"}}
 }
 
 // O3Pro represents the O3-pro reasoning model
@@ -1074,6 +1142,27 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT55Pro:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT56Sol:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT56Terra:
+		if m.maxCompletionTokens > 0 {
+			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
+		}
+		if m.reasoningEffort != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
+		}
+	case *GPT56Luna:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
