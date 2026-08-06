@@ -1,5 +1,8 @@
-// Package llmux provides a unified gateway for multiple LLM providers.
-// It supports OpenAI, Anthropic, Google AI, and Perplexity models with a consistent interface.
+// Package lingo provides a unified gateway for multiple LLM providers.
+// It supports OpenAI, Anthropic, Google AI, xAI, DeepSeek, Cohere, AWS
+// Bedrock, Azure OpenAI, OpenRouter, Perplexity and Ollama models with a
+// consistent interface, plus any endpoint speaking the OpenAI chat
+// completions dialect.
 package lingo
 
 import (
@@ -21,6 +24,15 @@ const (
 	ProviderPerplexity ProviderType = "perplexity"
 	ProviderOllama     ProviderType = "ollama"
 	ProviderBedrock    ProviderType = "bedrock"
+	ProviderAzure      ProviderType = "azure"
+	ProviderXAI        ProviderType = "xai"
+	ProviderDeepSeek   ProviderType = "deepseek"
+	ProviderOpenRouter ProviderType = "openrouter"
+	ProviderCohere     ProviderType = "cohere"
+	// ProviderOpenAICompatible covers any endpoint speaking the OpenAI
+	// chat completions dialect: Groq, Together, Fireworks, Cerebras,
+	// DeepInfra, vLLM, LM Studio, llama.cpp, LocalAI and friends.
+	ProviderOpenAICompatible ProviderType = "openai-compatible"
 )
 
 // ProviderConfig is the interface that all provider configurations must implement

@@ -7,6 +7,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/vertex"
 )
 
 func init() {
@@ -23,14 +24,41 @@ func init() {
 // ANTHROPIC PROVIDER CONFIG
 // ============================================================================
 
-// AnthropicConfig contains configuration for the Anthropic provider
+// AnthropicConfig contains configuration for the Anthropic provider.
+//
+// By default requests go to the Anthropic API and APIKey is required. Set
+// Vertex to reach Claude through Google Cloud instead, the counterpart to the
+// Bedrock provider for AWS.
 type AnthropicConfig struct {
-	// APIKey is the Anthropic API key (required)
+	// APIKey is the Anthropic API key. Required unless Vertex is set.
 	APIKey string
 	// Timeout is the request timeout (default: 60s)
 	Timeout time.Duration
 	// RateLimiter is the optional rate limit configuration
 	RateLimiter *RateLimitConfig
+	// Vertex routes requests through Claude on Google Cloud Vertex AI,
+	// authenticating with Google Cloud credentials instead of an API key.
+	Vertex *AnthropicVertexConfig
+	// HealthCheckModel is the model id Health generates against. It defaults
+	// to a small current Claude on the Anthropic API, and has no default on
+	// Vertex, where model ids are project- and region-specific.
+	HealthCheckModel string
+}
+
+// AnthropicVertexConfig configures Claude on Google Cloud Vertex AI.
+//
+// Vertex publishes Claude under its own model IDs, which carry an @-suffixed
+// version (for example "claude-opus-4-5@20251101") and differ from the ids the
+// Anthropic API uses. The typed constructors in this package emit Anthropic
+// API ids, so address Vertex models with NewAnthropicModel and the id from the
+// Vertex Model Garden.
+type AnthropicVertexConfig struct {
+	// ProjectID is the Google Cloud project ID (required)
+	ProjectID string
+	// Region is the Vertex AI region, e.g. "us-east5" or "global" (required)
+	Region string
+	// Scopes overrides the default Google auth scopes. Rarely needed.
+	Scopes []string
 }
 
 // Implement ProviderConfig interface
@@ -669,7 +697,10 @@ type anthropicThinkingModel interface {
 
 // anthropicClient implements the Provider interface for Anthropic
 type anthropicClient struct {
-	client      anthropic.Client
+	client anthropic.Client
+	// healthModel is generated against by Health. Vertex publishes Claude
+	// under different ids, so it has no usable default there.
+	healthModel string
 	timeout     time.Duration
 	logger      Logger
 	rateLimiter *rateLimiter
@@ -677,11 +708,24 @@ type anthropicClient struct {
 
 // newAnthropicClient creates a new Anthropic client using the official SDK
 func newAnthropicClient(config *AnthropicConfig, logger Logger) (*anthropicClient, error) {
-	if config.APIKey == "" {
-		return nil, fmt.Errorf("anthropic API key is required")
-	}
+	var client anthropic.Client
+	healthModel := config.HealthCheckModel
 
-	client := anthropic.NewClient(option.WithAPIKey(config.APIKey))
+	if v := config.Vertex; v != nil {
+		if v.ProjectID == "" || v.Region == "" {
+			return nil, fmt.Errorf("anthropic on Vertex AI requires both ProjectID and Region")
+		}
+		// Resolves Google application default credentials at construction
+		client = anthropic.NewClient(vertex.WithGoogleAuth(context.Background(), v.Region, v.ProjectID, v.Scopes...))
+	} else {
+		if config.APIKey == "" {
+			return nil, fmt.Errorf("anthropic API key is required")
+		}
+		client = anthropic.NewClient(option.WithAPIKey(config.APIKey))
+		if healthModel == "" {
+			healthModel = "claude-haiku-4-5"
+		}
+	}
 
 	timeout := config.Timeout
 	if timeout == 0 {
@@ -690,6 +734,7 @@ func newAnthropicClient(config *AnthropicConfig, logger Logger) (*anthropicClien
 
 	return &anthropicClient{
 		client:      client,
+		healthModel: healthModel,
 		timeout:     timeout,
 		logger:      logger,
 		rateLimiter: newRateLimiter(config.RateLimiter, logger),
@@ -1132,8 +1177,12 @@ func (c *anthropicClient) Health(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
+	if c.healthModel == "" {
+		return fmt.Errorf("anthropic health check needs a model: set AnthropicConfig.HealthCheckModel to a model id available in this Vertex project and region")
+	}
+
 	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model("claude-haiku-4-5"),
+		Model:     anthropic.Model(c.healthModel),
 		MaxTokens: int64(5),
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock("Hello")),

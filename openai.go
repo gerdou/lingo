@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/shared"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 func init() {
@@ -32,7 +32,12 @@ type OpenAIConfig struct {
 	Timeout time.Duration
 	// RateLimiter is the optional rate limit configuration
 	RateLimiter *RateLimitConfig
-	// BaseURL is an optional custom base URL (for Azure OpenAI or proxies)
+	// BaseURL is an optional custom base URL for proxies and gateways that
+	// keep OpenAI's authentication and routing.
+	//
+	// This is not the way to reach Azure OpenAI: Azure authenticates with an
+	// api-key header rather than a bearer token, requires an api-version
+	// query parameter, and routes by deployment name. Use AzureOpenAIConfig.
 	BaseURL string
 }
 

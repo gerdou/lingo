@@ -22,14 +22,28 @@ func init() {
 // GOOGLE PROVIDER CONFIG
 // ============================================================================
 
-// GoogleConfig contains configuration for the Google AI provider
+// GoogleConfig contains configuration for the Google AI provider.
+//
+// By default requests go to the Gemini Developer API and APIKey is required.
+// Set UseVertexAI to reach the same models through Vertex AI instead, which
+// authenticates with Google Cloud credentials and bills through GCP.
 type GoogleConfig struct {
-	// APIKey is the Google AI API key (required)
+	// APIKey is the Google AI API key. Required for the Gemini Developer API;
+	// on Vertex AI it is only used for express mode.
 	APIKey string
 	// Timeout is the request timeout (default: 60s)
 	Timeout time.Duration
 	// RateLimiter is the optional rate limit configuration
 	RateLimiter *RateLimitConfig
+	// UseVertexAI routes requests through Vertex AI rather than the Gemini
+	// Developer API. Set Project and Location alongside it, or supply APIKey
+	// alone for Vertex express mode.
+	UseVertexAI bool
+	// Project is the Google Cloud project ID (Vertex AI only)
+	Project string
+	// Location is the Vertex AI region, e.g. "us-central1" or "global"
+	// (Vertex AI only)
+	Location string
 }
 
 // Implement ProviderConfig interface
@@ -516,15 +530,26 @@ type googleClient struct {
 
 // newGoogleClient creates a new Google AI client using the Google GenAI SDK
 func newGoogleClient(config *GoogleConfig, logger Logger) (*googleClient, error) {
-	if config.APIKey == "" {
-		return nil, fmt.Errorf("google API key is required")
+	clientConfig := &genai.ClientConfig{APIKey: config.APIKey}
+
+	if config.UseVertexAI {
+		// Vertex AI authenticates with application default credentials when
+		// Project and Location are set, or with an API key in express mode
+		if config.Project == "" && config.APIKey == "" {
+			return nil, fmt.Errorf("vertex AI requires Project (with Location, or GOOGLE_CLOUD_LOCATION), or an APIKey for express mode")
+		}
+		clientConfig.Backend = genai.BackendVertexAI
+		clientConfig.Project = config.Project
+		clientConfig.Location = config.Location
+	} else {
+		if config.APIKey == "" {
+			return nil, fmt.Errorf("google API key is required")
+		}
+		clientConfig.Backend = genai.BackendGeminiAPI
 	}
 
 	ctx := context.Background()
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  config.APIKey,
-		Backend: genai.BackendGeminiAPI,
-	})
+	client, err := genai.NewClient(ctx, clientConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Google AI client: %w", err)
 	}
