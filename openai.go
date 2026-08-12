@@ -123,8 +123,9 @@ func NewGPT4oMini() *GPT4oMini {
 }
 
 // GPT4Turbo represents the GPT-4-turbo model
-// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Terra.
 // Versions: gpt-4-turbo, gpt-4-turbo-2024-04-09, gpt-4-turbo-preview
+//
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Terra.
 type GPT4Turbo struct{ openAIStandardOptions }
 
 func (m *GPT4Turbo) ModelName() string {
@@ -144,13 +145,16 @@ func (m *GPT4Turbo) WithTopP(p float64) *GPT4Turbo        { m.topP = p; return m
 func (m *GPT4Turbo) WithSystemPrompt(s string) *GPT4Turbo { m.systemPrompt = s; return m }
 
 // NewGPT4Turbo creates a new GPT-4-turbo model with default options
+//
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Terra.
 func NewGPT4Turbo() *GPT4Turbo {
 	return &GPT4Turbo{openAIStandardOptions{maxTokens: 4096, temperature: 1.0}}
 }
 
 // GPT4 represents the GPT-4 model
-// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Terra.
 // Versions: gpt-4, gpt-4-0613
+//
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Terra.
 type GPT4 struct{ openAIStandardOptions }
 
 func (m *GPT4) ModelName() string {
@@ -170,6 +174,8 @@ func (m *GPT4) WithTopP(p float64) *GPT4        { m.topP = p; return m }
 func (m *GPT4) WithSystemPrompt(s string) *GPT4 { m.systemPrompt = s; return m }
 
 // NewGPT4 creates a new GPT-4 model with default options
+//
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Terra.
 func NewGPT4() *GPT4 {
 	return &GPT4{openAIStandardOptions{maxTokens: 4096, temperature: 1.0}}
 }
@@ -236,8 +242,9 @@ func NewGPT41Nano() *GPT41Nano {
 }
 
 // GPT35Turbo represents the GPT-3.5-turbo model
-// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Luna.
 // Versions: gpt-3.5-turbo, gpt-3.5-turbo-0125
+//
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Luna.
 type GPT35Turbo struct{ openAIStandardOptions }
 
 func (m *GPT35Turbo) ModelName() string {
@@ -257,6 +264,8 @@ func (m *GPT35Turbo) WithTopP(p float64) *GPT35Turbo        { m.topP = p; return
 func (m *GPT35Turbo) WithSystemPrompt(s string) *GPT35Turbo { m.systemPrompt = s; return m }
 
 // NewGPT35Turbo creates a new GPT-3.5-turbo model with default options
+//
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Luna.
 func NewGPT35Turbo() *GPT35Turbo {
 	return &GPT35Turbo{openAIStandardOptions{maxTokens: 4096, temperature: 1.0}}
 }
@@ -266,8 +275,9 @@ func NewGPT35Turbo() *GPT35Turbo {
 // ============================================================================
 
 // O1 represents the O1 reasoning model
-// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Sol.
 // Versions: o1, o1-2024-12-17
+//
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Sol.
 type O1 struct{ openAIReasoningOptions }
 
 func (m *O1) ModelName() string {
@@ -286,13 +296,16 @@ func (m *O1) WithReasoningEffort(e string) *O1  { m.reasoningEffort = e; return 
 func (m *O1) WithSystemPrompt(s string) *O1     { m.systemPrompt = s; return m }
 
 // NewO1 creates a new O1 model with default options
+//
+// Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Sol.
 func NewO1() *O1 {
 	return &O1{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
 }
 
 // O1Mini represents the O1-mini reasoning model.
-// Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O4Mini or GPT5Mini.
 // Versions: o1-mini, o1-mini-2024-09-12
+//
+// Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O4Mini or GPT5Mini.
 type O1Mini struct{ openAIReasoningOptions }
 
 func (m *O1Mini) ModelName() string {
@@ -311,6 +324,8 @@ func (m *O1Mini) WithReasoningEffort(e string) *O1Mini  { m.reasoningEffort = e;
 func (m *O1Mini) WithSystemPrompt(s string) *O1Mini     { m.systemPrompt = s; return m }
 
 // NewO1Mini creates a new O1-mini model with default options
+//
+// Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O4Mini or GPT5Mini.
 func NewO1Mini() *O1Mini {
 	return &O1Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
 }
@@ -340,8 +355,9 @@ func NewO1Pro() *O1Pro {
 }
 
 // O3 represents the O3 reasoning model
-// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 // Versions: o3, o3-2025-04-16
+//
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 type O3 struct{ openAIReasoningOptions }
 
 func (m *O3) ModelName() string {
@@ -360,6 +376,8 @@ func (m *O3) WithReasoningEffort(e string) *O3  { m.reasoningEffort = e; return 
 func (m *O3) WithSystemPrompt(s string) *O3     { m.systemPrompt = s; return m }
 
 // NewO3 creates a new O3 model with default options
+//
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 func NewO3() *O3 {
 	return &O3{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
 }
@@ -413,6 +431,7 @@ func NewO4Mini() *O4Mini {
 }
 
 // GPT5 represents the GPT-5 reasoning model
+//
 // Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 type GPT5 struct{ openAIReasoningOptions }
 
@@ -426,11 +445,14 @@ func (m *GPT5) WithReasoningEffort(e string) *GPT5  { m.reasoningEffort = e; ret
 func (m *GPT5) WithSystemPrompt(s string) *GPT5     { m.systemPrompt = s; return m }
 
 // NewGPT5 creates a new GPT-5 model with default options
+//
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 func NewGPT5() *GPT5 {
 	return &GPT5{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
 }
 
 // GPT5Mini represents the GPT-5-mini reasoning model
+//
 // Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Terra.
 type GPT5Mini struct{ openAIReasoningOptions }
 
@@ -444,11 +466,14 @@ func (m *GPT5Mini) WithReasoningEffort(e string) *GPT5Mini  { m.reasoningEffort 
 func (m *GPT5Mini) WithSystemPrompt(s string) *GPT5Mini     { m.systemPrompt = s; return m }
 
 // NewGPT5Mini creates a new GPT-5-mini model with default options
+//
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Terra.
 func NewGPT5Mini() *GPT5Mini {
 	return &GPT5Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
 }
 
 // GPT5Nano represents the GPT-5-nano reasoning model
+//
 // Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Luna.
 type GPT5Nano struct{ openAIReasoningOptions }
 
@@ -462,6 +487,8 @@ func (m *GPT5Nano) WithReasoningEffort(e string) *GPT5Nano  { m.reasoningEffort 
 func (m *GPT5Nano) WithSystemPrompt(s string) *GPT5Nano     { m.systemPrompt = s; return m }
 
 // NewGPT5Nano creates a new GPT-5-nano model with default options
+//
+// Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Luna.
 func NewGPT5Nano() *GPT5Nano {
 	return &GPT5Nano{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
 }
@@ -535,6 +562,7 @@ func NewGPT51Nano() *GPT51Nano {
 }
 
 // GPT51Codex represents the GPT-5.1-codex reasoning model
+//
 // Deprecated: retired by OpenAI (Jul 23, 2026); the API returns 404. Migrate to GPT56Sol.
 type GPT51Codex struct{ openAIReasoningOptions }
 
@@ -548,11 +576,14 @@ func (m *GPT51Codex) WithReasoningEffort(e string) *GPT51Codex  { m.reasoningEff
 func (m *GPT51Codex) WithSystemPrompt(s string) *GPT51Codex     { m.systemPrompt = s; return m }
 
 // NewGPT51Codex creates a new GPT-5.1-codex model with default options
+//
+// Deprecated: retired by OpenAI (Jul 23, 2026); the API returns 404. Migrate to GPT56Sol.
 func NewGPT51Codex() *GPT51Codex {
 	return &GPT51Codex{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
 }
 
 // GPT51CodexMini represents the GPT-5.1-codex-mini reasoning model
+//
 // Deprecated: retired by OpenAI (Jul 23, 2026); the API returns 404. Migrate to GPT56Luna.
 type GPT51CodexMini struct{ openAIReasoningOptions }
 
@@ -572,6 +603,8 @@ func (m *GPT51CodexMini) WithReasoningEffort(e string) *GPT51CodexMini {
 func (m *GPT51CodexMini) WithSystemPrompt(s string) *GPT51CodexMini { m.systemPrompt = s; return m }
 
 // NewGPT51CodexMini creates a new GPT-5.1-codex-mini model with default options
+//
+// Deprecated: retired by OpenAI (Jul 23, 2026); the API returns 404. Migrate to GPT56Luna.
 func NewGPT51CodexMini() *GPT51CodexMini {
 	return &GPT51CodexMini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
 }
@@ -755,8 +788,9 @@ func NewO3Pro() *O3Pro {
 }
 
 // O1Preview represents the O1-preview reasoning model.
-// Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O3 or GPT5.
 // Versions: o1-preview, o1-preview-2024-09-12
+//
+// Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O3 or GPT5.
 type O1Preview struct{ openAIReasoningOptions }
 
 func (m *O1Preview) ModelName() string {
@@ -775,6 +809,8 @@ func (m *O1Preview) WithReasoningEffort(e string) *O1Preview  { m.reasoningEffor
 func (m *O1Preview) WithSystemPrompt(s string) *O1Preview     { m.systemPrompt = s; return m }
 
 // NewO1Preview creates a new O1-preview model with default options
+//
+// Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O3 or GPT5.
 func NewO1Preview() *O1Preview {
 	return &O1Preview{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
 }

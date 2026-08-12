@@ -115,8 +115,9 @@ const (
 // ============================================================================
 
 // Claude35Sonnet represents the Claude 3.5 Sonnet model.
-// Deprecated: retired by Anthropic (Oct 28, 2025); the API returns 404. Migrate to ClaudeSonnet46.
 // Versions: claude-3-5-sonnet-20241022, claude-3-5-sonnet-latest
+//
+// Deprecated: retired by Anthropic (Oct 28, 2025); the API returns 404. Migrate to ClaudeSonnet46.
 type Claude35Sonnet struct{ anthropicOptions }
 
 func (m *Claude35Sonnet) ModelName() string {
@@ -137,13 +138,16 @@ func (m *Claude35Sonnet) WithTopK(k int) *Claude35Sonnet            { m.topK = k
 func (m *Claude35Sonnet) WithSystemPrompt(s string) *Claude35Sonnet { m.systemPrompt = s; return m }
 
 // NewClaude35Sonnet creates a new Claude 3.5 Sonnet model with default options
+//
+// Deprecated: retired by Anthropic (Oct 28, 2025); the API returns 404. Migrate to ClaudeSonnet46.
 func NewClaude35Sonnet() *Claude35Sonnet {
 	return &Claude35Sonnet{anthropicOptions{maxTokens: 4096, temperature: 1.0}}
 }
 
 // Claude35Haiku represents the Claude 3.5 Haiku model.
-// Deprecated: retired by Anthropic (Feb 19, 2026); the API returns 404. Migrate to ClaudeHaiku45.
 // Versions: claude-3-5-haiku-20241022, claude-3-5-haiku-latest
+//
+// Deprecated: retired by Anthropic (Feb 19, 2026); the API returns 404. Migrate to ClaudeHaiku45.
 type Claude35Haiku struct{ anthropicOptions }
 
 func (m *Claude35Haiku) ModelName() string {
@@ -164,13 +168,16 @@ func (m *Claude35Haiku) WithTopK(k int) *Claude35Haiku            { m.topK = k; 
 func (m *Claude35Haiku) WithSystemPrompt(s string) *Claude35Haiku { m.systemPrompt = s; return m }
 
 // NewClaude35Haiku creates a new Claude 3.5 Haiku model with default options
+//
+// Deprecated: retired by Anthropic (Feb 19, 2026); the API returns 404. Migrate to ClaudeHaiku45.
 func NewClaude35Haiku() *Claude35Haiku {
 	return &Claude35Haiku{anthropicOptions{maxTokens: 4096, temperature: 1.0}}
 }
 
 // Claude3Opus represents the Claude 3 Opus model.
-// Deprecated: retired by Anthropic (Jan 5, 2026); the API returns 404. Migrate to ClaudeOpus48.
 // Versions: claude-3-opus-20240229, claude-3-opus-latest
+//
+// Deprecated: retired by Anthropic (Jan 5, 2026); the API returns 404. Migrate to ClaudeOpus48.
 type Claude3Opus struct{ anthropicOptions }
 
 func (m *Claude3Opus) ModelName() string {
@@ -191,11 +198,14 @@ func (m *Claude3Opus) WithTopK(k int) *Claude3Opus            { m.topK = k; retu
 func (m *Claude3Opus) WithSystemPrompt(s string) *Claude3Opus { m.systemPrompt = s; return m }
 
 // NewClaude3Opus creates a new Claude 3 Opus model with default options
+//
+// Deprecated: retired by Anthropic (Jan 5, 2026); the API returns 404. Migrate to ClaudeOpus48.
 func NewClaude3Opus() *Claude3Opus {
 	return &Claude3Opus{anthropicOptions{maxTokens: 4096, temperature: 1.0}}
 }
 
 // Claude3Haiku represents the Claude 3 Haiku model.
+//
 // Deprecated: retired by Anthropic (Apr 19, 2026); the API returns 404. Migrate to ClaudeHaiku45.
 type Claude3Haiku struct{ anthropicOptions }
 
@@ -211,11 +221,14 @@ func (m *Claude3Haiku) WithTopK(k int) *Claude3Haiku            { m.topK = k; re
 func (m *Claude3Haiku) WithSystemPrompt(s string) *Claude3Haiku { m.systemPrompt = s; return m }
 
 // NewClaude3Haiku creates a new Claude 3 Haiku model with default options
+//
+// Deprecated: retired by Anthropic (Apr 19, 2026); the API returns 404. Migrate to ClaudeHaiku45.
 func NewClaude3Haiku() *Claude3Haiku {
 	return &Claude3Haiku{anthropicOptions{maxTokens: 4096, temperature: 1.0}}
 }
 
 // Claude3Sonnet represents the Claude 3 Sonnet model.
+//
 // Deprecated: retired by Anthropic (Jul 21, 2025); the API returns 404. Migrate to ClaudeSonnet46.
 type Claude3Sonnet struct{ anthropicOptions }
 
@@ -231,6 +244,8 @@ func (m *Claude3Sonnet) WithTopK(k int) *Claude3Sonnet            { m.topK = k; 
 func (m *Claude3Sonnet) WithSystemPrompt(s string) *Claude3Sonnet { m.systemPrompt = s; return m }
 
 // NewClaude3Sonnet creates a new Claude 3 Sonnet model with default options
+//
+// Deprecated: retired by Anthropic (Jul 21, 2025); the API returns 404. Migrate to ClaudeSonnet46.
 func NewClaude3Sonnet() *Claude3Sonnet {
 	return &Claude3Sonnet{anthropicOptions{maxTokens: 4096, temperature: 1.0}}
 }
@@ -240,8 +255,9 @@ func NewClaude3Sonnet() *Claude3Sonnet {
 // ============================================================================
 
 // Claude37Sonnet represents the Claude 3.7 Sonnet model (supports extended thinking).
-// Deprecated: retired by Anthropic (Feb 19, 2026); the API returns 404. Migrate to ClaudeSonnet46.
 // Versions: claude-3-7-sonnet-20250219, claude-3-7-sonnet-latest
+//
+// Deprecated: retired by Anthropic (Feb 19, 2026); the API returns 404. Migrate to ClaudeSonnet46.
 type Claude37Sonnet struct{ anthropicThinkingOptions }
 
 func (m *Claude37Sonnet) ModelName() string {
@@ -263,6 +279,8 @@ func (m *Claude37Sonnet) WithSystemPrompt(s string) *Claude37Sonnet { m.systemPr
 func (m *Claude37Sonnet) WithThinkingBudget(n int) *Claude37Sonnet  { m.thinkingBudget = n; return m }
 
 // NewClaude37Sonnet creates a new Claude 3.7 Sonnet model with default options
+//
+// Deprecated: retired by Anthropic (Feb 19, 2026); the API returns 404. Migrate to ClaudeSonnet46.
 func NewClaude37Sonnet() *Claude37Sonnet {
 	return &Claude37Sonnet{anthropicThinkingOptions{
 		anthropicOptions: anthropicOptions{maxTokens: 8192, temperature: 1.0},
@@ -270,6 +288,7 @@ func NewClaude37Sonnet() *Claude37Sonnet {
 }
 
 // ClaudeSonnet4 represents the Claude Sonnet 4 model (supports extended thinking).
+//
 // Deprecated: retired by Anthropic (Jun 15, 2026); the API returns 404. Migrate to ClaudeSonnet46.
 type ClaudeSonnet4 struct{ anthropicThinkingOptions }
 
@@ -286,6 +305,8 @@ func (m *ClaudeSonnet4) WithSystemPrompt(s string) *ClaudeSonnet4 { m.systemProm
 func (m *ClaudeSonnet4) WithThinkingBudget(n int) *ClaudeSonnet4  { m.thinkingBudget = n; return m }
 
 // NewClaudeSonnet4 creates a new Claude Sonnet 4 model with default options
+//
+// Deprecated: retired by Anthropic (Jun 15, 2026); the API returns 404. Migrate to ClaudeSonnet46.
 func NewClaudeSonnet4() *ClaudeSonnet4 {
 	return &ClaudeSonnet4{anthropicThinkingOptions{
 		anthropicOptions: anthropicOptions{maxTokens: 8192, temperature: 1.0},
@@ -293,6 +314,7 @@ func NewClaudeSonnet4() *ClaudeSonnet4 {
 }
 
 // ClaudeOpus4 represents the Claude Opus 4 model (supports extended thinking).
+//
 // Deprecated: retired by Anthropic (Jun 15, 2026); the API returns 404. Migrate to ClaudeOpus48.
 type ClaudeOpus4 struct{ anthropicThinkingOptions }
 
@@ -309,6 +331,8 @@ func (m *ClaudeOpus4) WithSystemPrompt(s string) *ClaudeOpus4 { m.systemPrompt =
 func (m *ClaudeOpus4) WithThinkingBudget(n int) *ClaudeOpus4  { m.thinkingBudget = n; return m }
 
 // NewClaudeOpus4 creates a new Claude Opus 4 model with default options
+//
+// Deprecated: retired by Anthropic (Jun 15, 2026); the API returns 404. Migrate to ClaudeOpus48.
 func NewClaudeOpus4() *ClaudeOpus4 {
 	return &ClaudeOpus4{anthropicThinkingOptions{
 		anthropicOptions: anthropicOptions{maxTokens: 8192, temperature: 1.0},
@@ -382,8 +406,9 @@ func NewClaudeHaiku45() *ClaudeHaiku45 {
 }
 
 // ClaudeOpus41 represents the Claude Opus 4.1 model (supports extended thinking).
-// Deprecated: retired by Anthropic (Aug 5, 2026); the API returns 404. Migrate to ClaudeOpus5.
 // Versions: claude-opus-4-1-20250805, claude-opus-4-1
+//
+// Deprecated: retired by Anthropic (Aug 5, 2026); the API returns 404. Migrate to ClaudeOpus5.
 type ClaudeOpus41 struct{ anthropicThinkingOptions }
 
 func (m *ClaudeOpus41) ModelName() string {
@@ -405,6 +430,8 @@ func (m *ClaudeOpus41) WithSystemPrompt(s string) *ClaudeOpus41 { m.systemPrompt
 func (m *ClaudeOpus41) WithThinkingBudget(n int) *ClaudeOpus41  { m.thinkingBudget = n; return m }
 
 // NewClaudeOpus41 creates a new Claude Opus 4.1 model with default options
+//
+// Deprecated: retired by Anthropic (Aug 5, 2026); the API returns 404. Migrate to ClaudeOpus5.
 func NewClaudeOpus41() *ClaudeOpus41 {
 	return &ClaudeOpus41{anthropicThinkingOptions{
 		anthropicOptions: anthropicOptions{maxTokens: 8192, temperature: 1.0},
@@ -431,6 +458,7 @@ func (m *ClaudeOpus46) WithSystemPrompt(s string) *ClaudeOpus46 { m.systemPrompt
 func (m *ClaudeOpus46) WithAdaptiveThinking() *ClaudeOpus46 { m.adaptiveThinking = true; return m }
 
 // WithThinkingBudget sets a fixed thinking token budget.
+//
 // Deprecated: fixed budgets are deprecated on Claude 4.6 models; use WithAdaptiveThinking.
 func (m *ClaudeOpus46) WithThinkingBudget(n int) *ClaudeOpus46 { m.thinkingBudget = n; return m }
 
@@ -465,6 +493,7 @@ func (m *ClaudeSonnet46) WithSystemPrompt(s string) *ClaudeSonnet46 { m.systemPr
 func (m *ClaudeSonnet46) WithAdaptiveThinking() *ClaudeSonnet46 { m.adaptiveThinking = true; return m }
 
 // WithThinkingBudget sets a fixed thinking token budget.
+//
 // Deprecated: fixed budgets are deprecated on Claude 4.6 models; use WithAdaptiveThinking.
 func (m *ClaudeSonnet46) WithThinkingBudget(n int) *ClaudeSonnet46 { m.thinkingBudget = n; return m }
 

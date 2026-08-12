@@ -145,6 +145,7 @@ func NewGemini25FlashLite() *Gemini25FlashLite {
 }
 
 // Gemini20Flash represents the Gemini 2.0 Flash model.
+//
 // Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25Flash.
 type Gemini20Flash struct{ googleOptions }
 
@@ -159,11 +160,14 @@ func (m *Gemini20Flash) WithTopK(k int) *Gemini20Flash            { m.topK = k; 
 func (m *Gemini20Flash) WithSystemPrompt(s string) *Gemini20Flash { m.systemPrompt = s; return m }
 
 // NewGemini20Flash creates a new Gemini 2.0 Flash model with default options
+//
+// Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25Flash.
 func NewGemini20Flash() *Gemini20Flash {
 	return &Gemini20Flash{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
 // Gemini20FlashLite represents the Gemini 2.0 Flash Lite model.
+//
 // Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25FlashLite.
 type Gemini20FlashLite struct{ googleOptions }
 
@@ -184,13 +188,16 @@ func (m *Gemini20FlashLite) WithSystemPrompt(s string) *Gemini20FlashLite {
 }
 
 // NewGemini20FlashLite creates a new Gemini 2.0 Flash Lite model with default options
+//
+// Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25FlashLite.
 func NewGemini20FlashLite() *Gemini20FlashLite {
 	return &Gemini20FlashLite{googleOptions{maxTokens: 4096, temperature: 1.0}}
 }
 
 // Gemini15Pro represents the Gemini 1.5 Pro model.
-// Deprecated: retired by Google; the API returns an error. Migrate to Gemini25Pro or Gemini31Pro.
 // Versions: gemini-1.5-pro, gemini-1.5-pro-latest
+//
+// Deprecated: retired by Google; the API returns an error. Migrate to Gemini25Pro or Gemini31Pro.
 type Gemini15Pro struct{ googleOptions }
 
 func (m *Gemini15Pro) ModelName() string {
@@ -210,13 +217,16 @@ func (m *Gemini15Pro) WithTopK(k int) *Gemini15Pro            { m.topK = k; retu
 func (m *Gemini15Pro) WithSystemPrompt(s string) *Gemini15Pro { m.systemPrompt = s; return m }
 
 // NewGemini15Pro creates a new Gemini 1.5 Pro model with default options
+//
+// Deprecated: retired by Google; the API returns an error. Migrate to Gemini25Pro or Gemini31Pro.
 func NewGemini15Pro() *Gemini15Pro {
 	return &Gemini15Pro{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
 // Gemini15Flash represents the Gemini 1.5 Flash model.
-// Deprecated: retired by Google; the API returns an error. Migrate to Gemini35Flash.
 // Versions: gemini-1.5-flash, gemini-1.5-flash-latest
+//
+// Deprecated: retired by Google; the API returns an error. Migrate to Gemini35Flash.
 type Gemini15Flash struct{ googleOptions }
 
 func (m *Gemini15Flash) ModelName() string {
@@ -236,11 +246,14 @@ func (m *Gemini15Flash) WithTopK(k int) *Gemini15Flash            { m.topK = k; 
 func (m *Gemini15Flash) WithSystemPrompt(s string) *Gemini15Flash { m.systemPrompt = s; return m }
 
 // NewGemini15Flash creates a new Gemini 1.5 Flash model with default options
+//
+// Deprecated: retired by Google; the API returns an error. Migrate to Gemini35Flash.
 func NewGemini15Flash() *Gemini15Flash {
 	return &Gemini15Flash{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
 // Gemini15Flash8b represents the Gemini 1.5 Flash 8B model.
+//
 // Deprecated: retired by Google; the API returns an error. Migrate to Gemini31FlashLite.
 type Gemini15Flash8b struct{ googleOptions }
 
@@ -255,11 +268,14 @@ func (m *Gemini15Flash8b) WithTopK(k int) *Gemini15Flash8b            { m.topK =
 func (m *Gemini15Flash8b) WithSystemPrompt(s string) *Gemini15Flash8b { m.systemPrompt = s; return m }
 
 // NewGemini15Flash8b creates a new Gemini 1.5 Flash 8B model with default options
+//
+// Deprecated: retired by Google; the API returns an error. Migrate to Gemini31FlashLite.
 func NewGemini15Flash8b() *Gemini15Flash8b {
 	return &Gemini15Flash8b{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
 // Gemini20FlashExp represents the Gemini 2.0 Flash Experimental model.
+//
 // Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25Flash.
 type Gemini20FlashExp struct{ googleOptions }
 
@@ -274,11 +290,14 @@ func (m *Gemini20FlashExp) WithTopK(k int) *Gemini20FlashExp            { m.topK
 func (m *Gemini20FlashExp) WithSystemPrompt(s string) *Gemini20FlashExp { m.systemPrompt = s; return m }
 
 // NewGemini20FlashExp creates a new Gemini 2.0 Flash Exp model with default options
+//
+// Deprecated: shut down by Google on June 1, 2026; the API returns an error. Migrate to Gemini25Flash.
 func NewGemini20FlashExp() *Gemini20FlashExp {
 	return &Gemini20FlashExp{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
 // Gemini20FlashThinking represents the Gemini 2.0 Flash Thinking Experimental model.
+//
 // Deprecated: experimental endpoint removed by Google; the API returns an error. Migrate to Gemini25Flash.
 type Gemini20FlashThinking struct{ googleOptions }
 
@@ -302,11 +321,14 @@ func (m *Gemini20FlashThinking) WithSystemPrompt(s string) *Gemini20FlashThinkin
 }
 
 // NewGemini20FlashThinking creates a new Gemini 2.0 Flash Thinking model with default options
+//
+// Deprecated: experimental endpoint removed by Google; the API returns an error. Migrate to Gemini25Flash.
 func NewGemini20FlashThinking() *Gemini20FlashThinking {
 	return &Gemini20FlashThinking{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
 // Gemini20ProExp represents the Gemini 2.0 Pro Experimental model.
+//
 // Deprecated: experimental endpoint removed by Google; the API returns an error. Migrate to Gemini25Pro or Gemini31Pro.
 type Gemini20ProExp struct{ googleOptions }
 
@@ -321,14 +343,17 @@ func (m *Gemini20ProExp) WithTopK(k int) *Gemini20ProExp            { m.topK = k
 func (m *Gemini20ProExp) WithSystemPrompt(s string) *Gemini20ProExp { m.systemPrompt = s; return m }
 
 // NewGemini20ProExp creates a new Gemini 2.0 Pro Exp model with default options
+//
+// Deprecated: experimental endpoint removed by Google; the API returns an error. Migrate to Gemini25Pro or Gemini31Pro.
 func NewGemini20ProExp() *Gemini20ProExp {
 	return &Gemini20ProExp{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }
 
 // Gemini3Pro represents the Gemini 3 Pro model (preview).
+// Versions: gemini-3-pro-preview
+//
 // Deprecated: Google redirects gemini-3-pro-preview to gemini-3.1-pro-preview
 // (since March 9, 2026). Use Gemini31Pro to target that model directly.
-// Versions: gemini-3-pro-preview
 type Gemini3Pro struct{ googleOptions }
 
 func (m *Gemini3Pro) ModelName() string {
@@ -348,6 +373,9 @@ func (m *Gemini3Pro) WithTopK(k int) *Gemini3Pro            { m.topK = k; return
 func (m *Gemini3Pro) WithSystemPrompt(s string) *Gemini3Pro { m.systemPrompt = s; return m }
 
 // NewGemini3Pro creates a new Gemini 3 Pro model with default options
+//
+// Deprecated: Google redirects gemini-3-pro-preview to gemini-3.1-pro-preview
+// (since March 9, 2026). Use Gemini31Pro to target that model directly.
 func NewGemini3Pro() *Gemini3Pro {
 	return &Gemini3Pro{googleOptions{maxTokens: 8192, temperature: 1.0}}
 }

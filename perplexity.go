@@ -129,6 +129,7 @@ func NewSonarPro() *SonarPro {
 }
 
 // SonarReasoning represents the Sonar Reasoning model (enhanced reasoning).
+//
 // Deprecated: dropped from Perplexity's current model lineup. Migrate to SonarReasoningPro.
 type SonarReasoning struct{ perplexityOptions }
 
@@ -164,6 +165,8 @@ func (m *SonarReasoning) WithResponseFormat(schema map[string]any) *SonarReasoni
 }
 
 // NewSonarReasoning creates a new Sonar Reasoning model with default options
+//
+// Deprecated: dropped from Perplexity's current model lineup. Migrate to SonarReasoningPro.
 func NewSonarReasoning() *SonarReasoning {
 	return &SonarReasoning{perplexityOptions{maxTokens: 8192, temperature: 0.2}}
 }
