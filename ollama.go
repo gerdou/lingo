@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -572,7 +573,19 @@ type ollamaChatResponse struct {
 
 // newOllamaClient creates a new Ollama client
 func newOllamaClient(config *OllamaConfig, logger Logger) (*ollamaClient, error) {
-	baseURL := config.BaseURL
+	// A base URL here is a host, and a host is a natural thing to write with a
+	// trailing slash -- it is the form an env var or a settings field usually
+	// yields. Every path below is concatenated straight onto it, so a slash
+	// left in place sends "//api/chat" rather than "/api/chat", and Ollama's
+	// router is built with gin.Default(), which leaves RedirectFixedPath off
+	// and so does not collapse the doubled segment: the caller gets a 404 that
+	// names no cause. This is the one provider that has to trim for itself --
+	// openai-go resolves its paths relative to a normalized base for everyone
+	// else, and Azure trims at its own construction site for the same reason.
+	//
+	// Trimming before the default is what makes a BaseURL of "/" mean "unset"
+	// instead of "", which would otherwise build "/api/chat" and dial nothing.
+	baseURL := strings.TrimRight(config.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
@@ -743,7 +756,25 @@ func (c *ollamaClient) Generate(ctx context.Context, model Model, prompt string)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, reqErr = c.httpClient.Do(req)
-		return reqErr
+		if reqErr != nil {
+			return reqErr
+		}
+
+		// The status is classified here, inside the closure, because this is
+		// the only provider that drives raw HTTP: net/http returns (resp, nil)
+		// for a 429, so a status turned into an error after Execute has
+		// returned is a status the retry policy never sees. The body is read
+		// and closed on this path -- the attempt that may follow opens its own,
+		// and nothing downstream will close this one.
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return &HTTPStatusError{
+				StatusCode: resp.StatusCode,
+				Message:    fmt.Sprintf("ollama API error: status %d, body: %s", resp.StatusCode, string(body)),
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		c.logger.Error().
@@ -751,14 +782,15 @@ func (c *ollamaClient) Generate(ctx context.Context, model Model, prompt string)
 			Str("model", model.ModelName()).
 			Str("prompt_preview", truncateString(prompt, 100)).
 			Msg("Ollama generation failed")
+		// A status error is returned as it stands so that the message callers
+		// have always matched on is unchanged by the move above.
+		var statusErr *HTTPStatusError
+		if errors.As(err, &statusErr) {
+			return nil, statusErr
+		}
 		return nil, fmt.Errorf("ollama generation failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ollama API error: status %d, body: %s", resp.StatusCode, string(body))
-	}
 
 	// Parse response
 	var ollamaResp ollamaChatResponse

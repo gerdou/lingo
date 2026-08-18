@@ -1014,6 +1014,27 @@ type anthropicClient struct {
 	rateLimiter *rateLimiter
 }
 
+// anthropicVertexAuth resolves Google application default credentials for
+// Claude on Vertex AI and returns them as a request option.
+//
+// The SDK reports every credential failure by panicking and offers no variant
+// that returns: vertex.WithGoogleAuth panics on an empty region and on a
+// FindDefaultCredentials error (anthropic-sdk-go@v1.63.1/vertex/vertex.go:45-53),
+// and the WithCredentials it delegates to panics again if the OAuth transport
+// will not build (vertex.go:91-93). lingo.New promises an error when a provider
+// fails to initialize, so absent ADC or a rotated GOOGLE_APPLICATION_CREDENTIALS
+// file must not take the caller's whole process down at construction. The panic
+// is recovered here and handed back as the documented error.
+func anthropicVertexAuth(ctx context.Context, v *AnthropicVertexConfig) (opt option.RequestOption, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			opt = nil
+			err = fmt.Errorf("anthropic on Vertex AI credentials: %v", r)
+		}
+	}()
+	return vertex.WithGoogleAuth(ctx, v.Region, v.ProjectID, v.Scopes...), nil
+}
+
 // newAnthropicClient creates a new Anthropic client using the official SDK
 func newAnthropicClient(config *AnthropicConfig, logger Logger) (*anthropicClient, error) {
 	var client anthropic.Client
@@ -1024,12 +1045,16 @@ func newAnthropicClient(config *AnthropicConfig, logger Logger) (*anthropicClien
 			return nil, fmt.Errorf("anthropic on Vertex AI requires both ProjectID and Region")
 		}
 		// Resolves Google application default credentials at construction
-		client = anthropic.NewClient(vertex.WithGoogleAuth(context.Background(), v.Region, v.ProjectID, v.Scopes...))
+		opt, err := anthropicVertexAuth(context.Background(), v)
+		if err != nil {
+			return nil, err
+		}
+		client = anthropic.NewClient(option.WithMiddleware(suppressStainlessRetry), opt)
 	} else {
 		if config.APIKey == "" {
 			return nil, fmt.Errorf("anthropic API key is required")
 		}
-		client = anthropic.NewClient(option.WithAPIKey(config.APIKey))
+		client = anthropic.NewClient(option.WithMiddleware(suppressStainlessRetry), option.WithAPIKey(config.APIKey))
 		if healthModel == "" {
 			healthModel = "claude-haiku-4-5"
 		}

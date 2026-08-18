@@ -132,11 +132,11 @@ func TestBedrockOtherFamilyBodiesAreUnchanged(t *testing.T) {
 			model Model
 			want  string
 		}{
-			{NewBedrockLlama33Instruct70B(), `{"prompt":"\u003cs\u003e[INST] hi [/INST]","max_gen_len":2048,"temperature":0.6,"top_p":0.9}`},
+			{NewBedrockLlama33Instruct70B(), `{"prompt":"\u003c|begin_of_text|\u003e\u003c|start_header_id|\u003euser\u003c|end_header_id|\u003e\n\nhi\u003c|eot_id|\u003e\u003c|start_header_id|\u003eassistant\u003c|end_header_id|\u003e\n\n","max_gen_len":2048,"temperature":0.6,"top_p":0.9}`},
 			{NewBedrockLlama4Scout().WithSystemPrompt("be terse").WithMaxTokens(77),
-				`{"prompt":"\u003cs\u003e[INST] \u003c\u003cSYS\u003e\u003e\nbe terse\n\u003c\u003c/SYS\u003e\u003e\n\nhi [/INST]","max_gen_len":77,"temperature":0.6,"top_p":0.9}`},
+				`{"prompt":"\u003c|begin_of_text|\u003e\u003c|header_start|\u003esystem\u003c|header_end|\u003e\n\nbe terse\u003c|eot|\u003e\u003c|header_start|\u003euser\u003c|header_end|\u003e\n\nhi\u003c|eot|\u003e\u003c|header_start|\u003eassistant\u003c|header_end|\u003e\n\n","max_gen_len":77,"temperature":0.6,"top_p":0.9}`},
 			{NewBedrockModel("meta.llama3-3-70b-instruct-v1:0", "llama"),
-				`{"prompt":"\u003cs\u003e[INST] hi [/INST]","max_gen_len":4096,"temperature":0.7,"top_p":0.9}`},
+				`{"prompt":"\u003c|begin_of_text|\u003e\u003c|start_header_id|\u003euser\u003c|end_header_id|\u003e\n\nhi\u003c|eot_id|\u003e\u003c|start_header_id|\u003eassistant\u003c|end_header_id|\u003e\n\n","max_gen_len":4096,"temperature":0.7,"top_p":0.9}`},
 		} {
 			raw, err := c.buildLlamaRequest(tc.model, "hi")
 			if err != nil {

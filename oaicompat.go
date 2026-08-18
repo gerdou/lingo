@@ -241,6 +241,10 @@ func newOAICompatClient(provider ProviderType, label string, healthModel string,
 	if timeout == 0 {
 		timeout = defaultTimeout()
 	}
+	// The retry suppression goes on first so a caller's own options -- and any
+	// middleware they registered -- still get the last word.
+	opts = append([]option.RequestOption{option.WithMiddleware(suppressStainlessRetry)}, opts...)
+
 	return &oaiCompatClient{
 		client:       openai.NewClient(opts...),
 		provider:     provider,
@@ -398,6 +402,10 @@ func (c *oaiCompatClient) Generate(ctx context.Context, model Model, prompt stri
 		return nil, fmt.Errorf("no response choices returned from %s", c.label)
 	}
 
+	// One choice is all there can be: this package never sets n, so the API
+	// default of one applies, and usage is reported once for the whole response
+	// rather than per choice -- so reading choices[0] cannot drop a token
+	// anyone was billed for, only an alternative wording nobody asked for.
 	choice := resp.Choices[0]
 
 	// Model echoed by the API can differ from the one requested (OpenRouter

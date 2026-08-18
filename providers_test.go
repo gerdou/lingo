@@ -7,14 +7,39 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
+// capture is the last request a stub served, for the test that set the stub up
+// to assert against once the exchange has finished.
+//
+// Every stub in this package writes it through record rather than field by
+// field. An httptest server runs one handler goroutine per in-flight request,
+// so two overlapping requests would otherwise write these fields -- and build
+// that map -- concurrently, which is a data race and not merely a lost record.
+// Today's callers are serial and the lock is never contended; it is here so
+// that a test which fires two Generates at once is testing what it meant to
+// instead of tripping the race detector.
 type capture struct {
+	mu      sync.Mutex
 	path    string
 	query   string
 	headers http.Header
 	body    map[string]any
+}
+
+// record stores one request. Readers take no lock: they run after the round
+// trip they are asking about has completed, which orders the handler's writes
+// ahead of them.
+func (c *capture) record(r *http.Request, raw []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.path = r.URL.Path
+	c.query = r.URL.RawQuery
+	c.headers = r.Header.Clone()
+	c.body = map[string]any{}
+	_ = json.Unmarshal(raw, &c.body)
 }
 
 // oaiStub serves a canned OpenAI chat completion and records the request
@@ -22,11 +47,7 @@ func oaiStub(t *testing.T, c *capture) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		c.path = r.URL.Path
-		c.query = r.URL.RawQuery
-		c.headers = r.Header.Clone()
-		c.body = map[string]any{}
-		_ = json.Unmarshal(raw, &c.body)
+		c.record(r, raw)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
@@ -274,10 +295,7 @@ func TestCohereRoundTrip(t *testing.T) {
 	var c capture
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		c.path = r.URL.Path
-		c.headers = r.Header.Clone()
-		c.body = map[string]any{}
-		_ = json.Unmarshal(raw, &c.body)
+		c.record(r, raw)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"id":"r1","finish_reason":"COMPLETE",

@@ -543,6 +543,10 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		return nil, fmt.Errorf("no response choices returned from Perplexity")
 	}
 
+	// One choice is all there can be: this package never sets n, so the API
+	// default of one applies, and usage is reported once for the whole response
+	// rather than per choice -- so reading choices[0] cannot drop a token
+	// anyone was billed for, only an alternative wording nobody asked for.
 	choice := resp.Choices[0]
 
 	// Perplexity's reasoning models prefix the answer with their trace instead

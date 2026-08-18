@@ -141,20 +141,29 @@ func (c *Client) setHeaders(req *http.Request) {
 
 // handleErrorResponse parses and returns an appropriate error for non-200 responses
 func (c *Client) handleErrorResponse(statusCode int, body []byte) error {
+	// A body that unmarshals is not a body that matched. ErrorResponse has a
+	// single "error" key, so any other object -- a bare {"detail": ...}, a
+	// {"message": ...}, an empty {} from a proxy in front of the API -- decodes
+	// cleanly into the zero value, and taking that at face value would report
+	// the status with an empty message and throw away the only text that says
+	// what went wrong. The parsed form is used only when it carried something.
 	var errResp ErrorResponse
-	if err := json.Unmarshal(body, &errResp); err != nil {
-		// If we can't parse the error response, return the raw status and body
-		return &APIError{
-			StatusCode: statusCode,
-			Message:    string(body),
+	if err := json.Unmarshal(body, &errResp); err == nil {
+		if errResp.Error.Message != "" || errResp.Error.Type != "" || errResp.Error.Code != "" {
+			return &APIError{
+				StatusCode: statusCode,
+				Message:    errResp.Error.Message,
+				Type:       errResp.Error.Type,
+				Code:       errResp.Error.Code,
+			}
 		}
 	}
 
+	// Either the body is not JSON at all, or it is JSON that carries its reason
+	// somewhere else. Both keep the raw text, which is what an operator acts on.
 	return &APIError{
 		StatusCode: statusCode,
-		Message:    errResp.Error.Message,
-		Type:       errResp.Error.Type,
-		Code:       errResp.Error.Code,
+		Message:    string(body),
 	}
 }
 

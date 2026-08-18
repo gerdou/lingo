@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -478,8 +479,7 @@ func cacheUsageStub(t *testing.T, c *capture) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		c.body = map[string]any{}
-		_ = json.Unmarshal(raw, &c.body)
+		c.record(r, raw)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
@@ -1001,10 +1001,7 @@ func anthropicStub(t *testing.T, c *capture) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		c.path = r.URL.Path
-		c.headers = r.Header.Clone()
-		c.body = map[string]any{}
-		_ = json.Unmarshal(raw, &c.body)
+		c.record(r, raw)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant",
@@ -1200,15 +1197,68 @@ type bedrockCall struct {
 	body string // raw, so bodies can be compared byte for byte
 }
 
+// bedrockCalls is the request log a Bedrock stub writes and its test reads.
+//
+// It owns a mutex because the two ends run on different goroutines: an httptest
+// server handles each in-flight request on its own goroutine, so two
+// overlapping requests appending to a bare slice would race, and a racing
+// append does not merely upset the detector -- it drops records, which turns a
+// concurrency test into a flake that blames the wrong code. Reads lock too, so
+// a test may look while requests are still in flight.
+type bedrockCalls struct {
+	mu    sync.Mutex
+	calls []bedrockCall
+}
+
+func (c *bedrockCalls) add(call bedrockCall) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls = append(c.calls, call)
+}
+
+func (c *bedrockCalls) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.calls)
+}
+
+// at returns one recorded call. Out of range is a fatal test error rather than
+// a panic, so a test that recorded fewer calls than it expected says which.
+func (c *bedrockCalls) at(t *testing.T, i int) bedrockCall {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if i >= len(c.calls) {
+		t.Fatalf("call %d was never recorded: the stub saw %d request(s)", i, len(c.calls))
+	}
+	return c.calls[i]
+}
+
+// all returns a copy, so ranging over the log cannot read the slice a handler
+// is still appending to.
+func (c *bedrockCalls) all() []bedrockCall {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]bedrockCall(nil), c.calls...)
+}
+
 // bedrockStub answers the InvokeModel and Converse endpoints with a canned
 // response per family and records every request.
-func bedrockStub(t *testing.T, calls *[]bedrockCall) *bedrockClient {
+// extraHeaders, when given, are set on every response: the InvokeModel
+// token-count headers are not part of any response body, so a test that needs
+// them has nowhere else to put them.
+func bedrockStub(t *testing.T, calls *bedrockCalls, extraHeaders ...map[string]string) *bedrockClient {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		*calls = append(*calls, bedrockCall{path: r.URL.Path, body: string(raw)})
+		calls.add(bedrockCall{path: r.URL.Path, body: string(raw)})
 
 		w.Header().Set("Content-Type", "application/json")
+		for _, hs := range extraHeaders {
+			for k, v := range hs {
+				w.Header().Set(k, v)
+			}
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/converse"):
 			_, _ = io.WriteString(w, `{
@@ -1231,6 +1281,15 @@ func bedrockStub(t *testing.T, calls *[]bedrockCall) *bedrockClient {
 			_, _ = io.WriteString(w, `{"results":[{"outputText":"hi there","completionReason":"FINISH","tokenCount":7}]}`)
 		}
 	}))
+	return bedrockClientFor(t, srv)
+}
+
+// bedrockClientFor points a real bedrockClient at srv. It is split out of
+// bedrockStub so a test that has to serve its own canned response body gets the
+// same client the rest of them use -- same middleware registration, same
+// credentials -- instead of reassembling one and quietly diverging from it.
+func bedrockClientFor(t *testing.T, srv *httptest.Server) *bedrockClient {
+	t.Helper()
 	t.Cleanup(srv.Close)
 
 	awsCfg := aws.Config{
@@ -1238,7 +1297,7 @@ func bedrockStub(t *testing.T, calls *[]bedrockCall) *bedrockClient {
 		Credentials: credentials.NewStaticCredentialsProvider("id", "secret", ""),
 	}
 	return &bedrockClient{
-		client: bedrockruntime.NewFromConfig(awsCfg, func(o *bedrockruntime.Options) {
+		client: newBedrockRuntimeClient(awsCfg, func(o *bedrockruntime.Options) {
 			o.BaseEndpoint = aws.String(srv.URL)
 		}),
 		timeout:     defaultTimeout(),
@@ -1297,7 +1356,7 @@ func TestBedrockInvokeModelFamiliesAreUntouchedByConverse(t *testing.T) {
 		// template's angle brackets, so the golden is the literal wire bytes.
 		name: "llama",
 		path: "/model/meta.llama3-3-70b-instruct-v1:0/invoke",
-		body: `{"prompt":"\u003cs\u003e[INST] \u003c\u003cSYS\u003e\u003e\nbe terse\n\u003c\u003c/SYS\u003e\u003e\n\nhello [/INST]","max_gen_len":2048,"temperature":0.6,"top_p":0.9}`,
+		body: `{"prompt":"\u003c|begin_of_text|\u003e\u003c|start_header_id|\u003esystem\u003c|end_header_id|\u003e\n\nbe terse\u003c|eot_id|\u003e\u003c|start_header_id|\u003euser\u003c|end_header_id|\u003e\n\nhello\u003c|eot_id|\u003e\u003c|start_header_id|\u003eassistant\u003c|end_header_id|\u003e\n\n","max_gen_len":2048,"temperature":0.6,"top_p":0.9}`,
 		models: []Model{
 			NewBedrockLlama33Instruct70B().WithSystemPrompt("be terse"),
 			Cached(NewBedrockLlama33Instruct70B().WithSystemPrompt("be terse"),
@@ -1316,7 +1375,7 @@ func TestBedrockInvokeModelFamiliesAreUntouchedByConverse(t *testing.T) {
 		},
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
-			var calls []bedrockCall
+			var calls bedrockCalls
 			c := bedrockStub(t, &calls)
 
 			for _, m := range tc.models {
@@ -1324,10 +1383,10 @@ func TestBedrockInvokeModelFamiliesAreUntouchedByConverse(t *testing.T) {
 					t.Fatalf("generate: %v", err)
 				}
 			}
-			if len(calls) != len(tc.models) {
-				t.Fatalf("calls = %d, want %d", len(calls), len(tc.models))
+			if calls.len() != len(tc.models) {
+				t.Fatalf("calls = %d, want %d", calls.len(), len(tc.models))
 			}
-			for i, call := range calls {
+			for i, call := range calls.all() {
 				if call.path != tc.path {
 					t.Errorf("call %d hit %q, want the InvokeModel path %q", i, call.path, tc.path)
 				}
@@ -1344,7 +1403,7 @@ func TestBedrockInvokeModelFamiliesAreUntouchedByConverse(t *testing.T) {
 // model that changes family, or a predicate that widens, shows up here as a
 // request landing on the wrong endpoint.
 func TestBedrockNamedModelsRouteByFamily(t *testing.T) {
-	var calls []bedrockCall
+	var calls bedrockCalls
 	c := bedrockStub(t, &calls)
 
 	models := []Model{
@@ -1371,7 +1430,7 @@ func TestBedrockNamedModelsRouteByFamily(t *testing.T) {
 		if _, err := c.Generate(context.Background(), m, "hello"); err != nil {
 			t.Fatalf("%s: %v", m.ModelName(), err)
 		}
-		call := calls[i]
+		call := calls.at(t, i)
 		wantInvoke := "/model/" + m.ModelName() + "/invoke"
 		wantConverse := "/model/" + m.ModelName() + "/converse"
 		switch call.path {
@@ -1397,7 +1456,7 @@ func TestBedrockNamedModelsRouteByFamily(t *testing.T) {
 // builder tests in bedrock_test.go assert the input struct; this asserts that
 // the cache point survives the SDK and that the counters come back normalized.
 func TestBedrockNovaConverseWireShape(t *testing.T) {
-	var calls []bedrockCall
+	var calls bedrockCalls
 	c := bedrockStub(t, &calls)
 
 	// Untouched first: the request a Nova model has to send when nobody asked
@@ -1406,11 +1465,11 @@ func TestBedrockNovaConverseWireShape(t *testing.T) {
 		NewBedrockNovaPro().WithSystemPrompt("be terse"), "hello"); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if calls[0].path != "/model/amazon.nova-pro-v1:0/converse" {
-		t.Errorf("path = %q", calls[0].path)
+	if calls.at(t, 0).path != "/model/amazon.nova-pro-v1:0/converse" {
+		t.Errorf("path = %q", calls.at(t, 0).path)
 	}
-	if strings.Contains(calls[0].body, "cachePoint") {
-		t.Errorf("cache point sent without opting in: %s", calls[0].body)
+	if strings.Contains(calls.at(t, 0).body, "cachePoint") {
+		t.Errorf("cache point sent without opting in: %s", calls.at(t, 0).body)
 	}
 
 	resp, err := c.Generate(context.Background(),
@@ -1435,16 +1494,16 @@ func TestBedrockNovaConverseWireShape(t *testing.T) {
 			} `json:"content"`
 		} `json:"messages"`
 	}
-	if err := json.Unmarshal([]byte(calls[1].body), &body); err != nil {
-		t.Fatalf("converse body %s: %v", calls[1].body, err)
+	if err := json.Unmarshal([]byte(calls.at(t, 1).body), &body); err != nil {
+		t.Fatalf("converse body %s: %v", calls.at(t, 1).body, err)
 	}
 
 	if len(body.System) != 2 || body.System[0].Text != "be terse" {
-		t.Fatalf("system = %s, want the text block plus a trailing cache point", calls[1].body)
+		t.Fatalf("system = %s, want the text block plus a trailing cache point", calls.at(t, 1).body)
 	}
 	cp := body.System[1].CachePoint
 	if cp == nil || cp.Type != "default" {
-		t.Fatalf("system[1] = %s, want a default cache point", calls[1].body)
+		t.Fatalf("system[1] = %s, want a default cache point", calls.at(t, 1).body)
 	}
 	// Nova documents a five minute lifetime only, so the requested 1h is clamped
 	// away rather than sent and rejected.
@@ -1453,7 +1512,7 @@ func TestBedrockNovaConverseWireShape(t *testing.T) {
 	}
 	last := body.Messages[0].Content
 	if len(last) != 2 || last[1].CachePoint == nil {
-		t.Errorf("message content = %s, want a trailing cache point", calls[1].body)
+		t.Errorf("message content = %s, want a trailing cache point", calls.at(t, 1).body)
 	}
 
 	// Converse reports the cache read alongside inputTokens, so PromptTokens has
@@ -1485,10 +1544,7 @@ func geminiStub(t *testing.T, c *capture) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		c.path = r.URL.Path
-		c.headers = r.Header.Clone()
-		c.body = map[string]any{}
-		_ = json.Unmarshal(raw, &c.body)
+		c.record(r, raw)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
@@ -1617,18 +1673,48 @@ type cacheCall struct {
 	body   map[string]any
 }
 
+// cacheCalls is the request log the CachedContents stubs write, locked for the
+// same reason bedrockCalls is: the handler goroutine and the test are not the
+// same goroutine.
+type cacheCalls struct {
+	mu    sync.Mutex
+	calls []cacheCall
+}
+
+func (c *cacheCalls) add(call cacheCall) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls = append(c.calls, call)
+}
+
+func (c *cacheCalls) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.calls)
+}
+
+func (c *cacheCalls) at(t *testing.T, i int) cacheCall {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if i >= len(c.calls) {
+		t.Fatalf("call %d was never recorded: the stub saw %d request(s)", i, len(c.calls))
+	}
+	return c.calls[i]
+}
+
 // cacheStub serves the CachedContents resource endpoints, recording every
 // request and echoing a canned resource back. It points the pinned genai SDK at
 // itself through both base-URL env vars, so one stub covers the Gemini
 // Developer API and Vertex AI; a test picks a backend through GoogleConfig and
 // only the matching variable is consulted.
-func cacheStub(t *testing.T, calls *[]cacheCall) *httptest.Server {
+func cacheStub(t *testing.T, calls *cacheCalls) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		call := cacheCall{method: r.Method, path: r.URL.Path, body: map[string]any{}}
 		_ = json.Unmarshal(raw, &call.body)
-		*calls = append(*calls, call)
+		calls.add(call)
 
 		const resource = `{"name":"cachedContents/abc123","displayName":"legal-corpus",
 			"model":"models/gemini-3.1-pro-preview",
@@ -1666,7 +1752,7 @@ func cacheManager(t *testing.T, cfg *GoogleConfig) (*LLMGateway, PromptCacheMana
 }
 
 func TestGoogleCacheCreateHitsTheCachedContentsCollection(t *testing.T) {
-	var calls []cacheCall
+	var calls cacheCalls
 	srv := cacheStub(t, &calls)
 	defer srv.Close()
 
@@ -1684,13 +1770,13 @@ func TestGoogleCacheCreateHitsTheCachedContentsCollection(t *testing.T) {
 		t.Fatalf("CreateCache: %v", err)
 	}
 
-	if len(calls) != 1 {
-		t.Fatalf("calls = %d, want 1", len(calls))
+	if calls.len() != 1 {
+		t.Fatalf("calls = %d, want 1", calls.len())
 	}
-	if calls[0].method != http.MethodPost || calls[0].path != "/v1beta/cachedContents" {
-		t.Errorf("create hit %s %s", calls[0].method, calls[0].path)
+	if calls.at(t, 0).method != http.MethodPost || calls.at(t, 0).path != "/v1beta/cachedContents" {
+		t.Errorf("create hit %s %s", calls.at(t, 0).method, calls.at(t, 0).path)
 	}
-	body := calls[0].body
+	body := calls.at(t, 0).body
 	if body["model"] != "models/gemini-3.1-pro-preview" {
 		t.Errorf("model = %v, want the provider-qualified name", body["model"])
 	}
@@ -1738,7 +1824,7 @@ func TestGoogleCacheCreateHitsTheCachedContentsCollection(t *testing.T) {
 }
 
 func TestGoogleCacheCreateRejectsWhatTheAPICannotAccept(t *testing.T) {
-	var calls []cacheCall
+	var calls cacheCalls
 	srv := cacheStub(t, &calls)
 	defer srv.Close()
 
@@ -1757,13 +1843,13 @@ func TestGoogleCacheCreateRejectsWhatTheAPICannotAccept(t *testing.T) {
 	}
 	// A direct, explicitly addressed resource call reports its own failures
 	// rather than no-opping, so none of these reached the wire.
-	if len(calls) != 0 {
-		t.Errorf("calls = %d, want 0: invalid specs must not reach the provider", len(calls))
+	if calls.len() != 0 {
+		t.Errorf("calls = %d, want 0: invalid specs must not reach the provider", calls.len())
 	}
 }
 
 func TestGoogleCacheRefreshPatchesTheTTL(t *testing.T) {
-	var calls []cacheCall
+	var calls cacheCalls
 	srv := cacheStub(t, &calls)
 	defer srv.Close()
 
@@ -1773,16 +1859,16 @@ func TestGoogleCacheRefreshPatchesTheTTL(t *testing.T) {
 	if _, err := mgr.RefreshCache(context.Background(), "cachedContents/abc123", 30*time.Minute); err != nil {
 		t.Fatalf("RefreshCache: %v", err)
 	}
-	if len(calls) != 1 {
-		t.Fatalf("calls = %d, want 1", len(calls))
+	if calls.len() != 1 {
+		t.Fatalf("calls = %d, want 1", calls.len())
 	}
-	if calls[0].method != http.MethodPatch || calls[0].path != "/v1beta/cachedContents/abc123" {
-		t.Errorf("refresh hit %s %s", calls[0].method, calls[0].path)
+	if calls.at(t, 0).method != http.MethodPatch || calls.at(t, 0).path != "/v1beta/cachedContents/abc123" {
+		t.Errorf("refresh hit %s %s", calls.at(t, 0).method, calls.at(t, 0).path)
 	}
 	// Update accepts a lifetime and nothing else: the content, model and system
 	// instruction are fixed at creation, so the body carries only the TTL.
-	if len(calls[0].body) != 1 || calls[0].body["ttl"] != "1800s" {
-		t.Errorf("refresh body = %v, want only a ttl", calls[0].body)
+	if len(calls.at(t, 0).body) != 1 || calls.at(t, 0).body["ttl"] != "1800s" {
+		t.Errorf("refresh body = %v, want only a ttl", calls.at(t, 0).body)
 	}
 
 	if _, err := mgr.RefreshCache(context.Background(), "", time.Hour); err == nil {
@@ -1794,7 +1880,7 @@ func TestGoogleCacheRefreshPatchesTheTTL(t *testing.T) {
 }
 
 func TestGoogleCacheGetAndDeleteAddressOneResource(t *testing.T) {
-	var calls []cacheCall
+	var calls cacheCalls
 	srv := cacheStub(t, &calls)
 	defer srv.Close()
 
@@ -1822,12 +1908,12 @@ func TestGoogleCacheGetAndDeleteAddressOneResource(t *testing.T) {
 		{method: http.MethodGet, path: "/v1beta/cachedContents/abc123"},
 		{method: http.MethodDelete, path: "/v1beta/cachedContents/abc123"},
 	}
-	if len(calls) != len(want) {
-		t.Fatalf("calls = %d, want %d", len(calls), len(want))
+	if calls.len() != len(want) {
+		t.Fatalf("calls = %d, want %d", calls.len(), len(want))
 	}
 	for i, w := range want {
-		if calls[i].method != w.method || calls[i].path != w.path {
-			t.Errorf("call %d = %s %s, want %s %s", i, calls[i].method, calls[i].path, w.method, w.path)
+		if calls.at(t, i).method != w.method || calls.at(t, i).path != w.path {
+			t.Errorf("call %d = %s %s, want %s %s", i, calls.at(t, i).method, calls.at(t, i).path, w.method, w.path)
 		}
 	}
 
@@ -1840,7 +1926,7 @@ func TestGoogleCacheGetAndDeleteAddressOneResource(t *testing.T) {
 }
 
 func TestGoogleCacheListWalksTheCollection(t *testing.T) {
-	var calls []cacheCall
+	var calls cacheCalls
 	srv := cacheStub(t, &calls)
 	defer srv.Close()
 
@@ -1851,8 +1937,8 @@ func TestGoogleCacheListWalksTheCollection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListCaches: %v", err)
 	}
-	if len(calls) != 1 || calls[0].method != http.MethodGet || calls[0].path != "/v1beta/cachedContents" {
-		t.Fatalf("list hit %v", calls)
+	if got := calls.at(t, 0); calls.len() != 1 || got.method != http.MethodGet || got.path != "/v1beta/cachedContents" {
+		t.Fatalf("list hit %d call(s), first %s %s", calls.len(), got.method, got.path)
 	}
 	if len(caches) != 1 || caches[0].Name != "cachedContents/abc123" || caches[0].Tokens != 4096 {
 		t.Errorf("caches = %+v", caches)
@@ -1860,7 +1946,7 @@ func TestGoogleCacheListWalksTheCollection(t *testing.T) {
 }
 
 func TestGoogleCacheOnVertexUsesQualifiedNames(t *testing.T) {
-	var calls []cacheCall
+	var calls cacheCalls
 	srv := cacheStub(t, &calls)
 	defer srv.Close()
 
@@ -1887,17 +1973,17 @@ func TestGoogleCacheOnVertexUsesQualifiedNames(t *testing.T) {
 	}
 
 	const collection = "/v1beta1/projects/p1/locations/us-central1/cachedContents"
-	if len(calls) != 2 {
-		t.Fatalf("calls = %d, want 2", len(calls))
+	if calls.len() != 2 {
+		t.Fatalf("calls = %d, want 2", calls.len())
 	}
-	if calls[0].method != http.MethodPost || calls[0].path != collection {
-		t.Errorf("create hit %s %s, want POST %s", calls[0].method, calls[0].path, collection)
+	if calls.at(t, 0).method != http.MethodPost || calls.at(t, 0).path != collection {
+		t.Errorf("create hit %s %s, want POST %s", calls.at(t, 0).method, calls.at(t, 0).path, collection)
 	}
-	if want := "projects/p1/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview"; calls[0].body["model"] != want {
-		t.Errorf("model = %v, want %q", calls[0].body["model"], want)
+	if want := "projects/p1/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview"; calls.at(t, 0).body["model"] != want {
+		t.Errorf("model = %v, want %q", calls.at(t, 0).body["model"], want)
 	}
-	if calls[1].method != http.MethodGet || calls[1].path != collection+"/abc123" {
-		t.Errorf("get hit %s %s", calls[1].method, calls[1].path)
+	if calls.at(t, 1).method != http.MethodGet || calls.at(t, 1).path != collection+"/abc123" {
+		t.Errorf("get hit %s %s", calls.at(t, 1).method, calls.at(t, 1).path)
 	}
 }
 
@@ -1927,11 +2013,13 @@ func TestCacheManagerOnlyExistsForGoogle(t *testing.T) {
 }
 
 // cacheRejectStub refuses every resource call. 400 rather than 500 or 429 so
-// nothing in the SDK or the rate limiter treats it as retryable.
-func cacheRejectStub(t *testing.T, calls *int) *httptest.Server {
+// nothing in the SDK or the rate limiter treats it as retryable. It records
+// through the same locked log cacheStub uses rather than incrementing a bare
+// int from the handler goroutine.
+func cacheRejectStub(t *testing.T, calls *cacheCalls) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		*calls++
+		calls.add(cacheCall{method: r.Method, path: r.URL.Path})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, `{"error":{"code":400,"status":"INVALID_ARGUMENT",
@@ -1946,7 +2034,7 @@ func cacheRejectStub(t *testing.T, calls *int) *httptest.Server {
 // create the caller explicitly asked for has to say it did not happen, or the
 // caller hands a name that does not exist to the next generate call.
 func TestGoogleCacheResourceFailuresAreErrors(t *testing.T) {
-	var calls int
+	var calls cacheCalls
 	srv := cacheRejectStub(t, &calls)
 	defer srv.Close()
 
@@ -1971,8 +2059,8 @@ func TestGoogleCacheResourceFailuresAreErrors(t *testing.T) {
 	if err := mgr.DeleteCache(ctx, "cachedContents/abc123"); err == nil {
 		t.Error("DeleteCache = nil error on a rejected delete")
 	}
-	if calls != 5 {
-		t.Errorf("calls = %d, want 5: every method must reach the provider", calls)
+	if calls.len() != 5 {
+		t.Errorf("calls = %d, want 5: every method must reach the provider", calls.len())
 	}
 }
 
@@ -2008,7 +2096,7 @@ func TestCacheManagerIsDiscoveredAmongOtherProviders(t *testing.T) {
 }
 
 func TestWithPromptCacheRoundTripsIntoTheRequest(t *testing.T) {
-	var calls []cacheCall
+	var calls cacheCalls
 	cacheSrv := cacheStub(t, &calls)
 	defer cacheSrv.Close()
 

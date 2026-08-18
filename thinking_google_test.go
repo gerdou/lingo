@@ -50,10 +50,7 @@ func geminiThinkingStub(t *testing.T, c *capture, body string) *httptest.Server 
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		c.path = r.URL.Path
-		c.headers = r.Header.Clone()
-		c.body = map[string]any{}
-		_ = json.Unmarshal(raw, &c.body)
+		c.record(r, raw)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, body)

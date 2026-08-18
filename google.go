@@ -1074,6 +1074,11 @@ func (c *googleClient) Generate(ctx context.Context, model Model, prompt string)
 		return nil, fmt.Errorf("no candidates returned from Google AI")
 	}
 
+	// One candidate is all there can be: this package never sets
+	// GenerateContentConfig.CandidateCount, so the API default of one applies,
+	// and usageMetadata's candidatesTokenCount covers the whole response rather
+	// than one candidate -- so reading candidates[0] cannot drop a token anyone
+	// was billed for, only an alternative wording nobody asked for.
 	candidate := resp.Candidates[0]
 	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
 		return nil, fmt.Errorf("no content in Google AI response")

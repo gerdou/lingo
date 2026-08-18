@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	brtypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	"github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 func init() {
@@ -42,6 +45,13 @@ type BedrockConfig struct {
 	SecretAccessKey string
 	// SessionToken is the AWS session token for temporary credentials (optional)
 	SessionToken string
+	// HealthCheckModel is the model id Health generates five tokens against.
+	// When empty -- the default -- Health makes no inference call at all and
+	// asks Bedrock a question that names no model, which is what keeps the
+	// check from failing over a model the account happens not to have. Set it
+	// only when "is this specific model servable" is the question you want
+	// answered.
+	HealthCheckModel string
 	// Timeout is the request timeout (default: 60s)
 	Timeout time.Duration
 	// RateLimiter is the optional rate limit configuration
@@ -190,16 +200,50 @@ func bedrockStripScope(modelID string) string {
 	return modelID
 }
 
+// bedrockResolveModelID reduces whatever the caller put in the model id down to
+// the plain vendor id every classifier in this file is written against.
+//
+// Bedrock's ModelId parameter takes four spellings, and until this existed only
+// the first two were understood:
+//
+//	meta.llama4-scout-17b-instruct-v1:0     a base model id
+//	us.meta.llama4-scout-17b-instruct-v1:0  a cross-region inference profile id
+//	arn:aws:bedrock:us-east-1:1234:inference-profile/us.meta.llama4-scout-17b-instruct-v1:0
+//	arn:aws:bedrock:us-east-1:1234:provisioned-model/abc123
+//
+// An ARN carries its subject in the segment after the last "/", so taking that
+// segment and then stripping the scope yields exactly the string a caller who
+// passed the id directly would have given. No Bedrock model id contains a "/",
+// so the cut is a no-op on the first two forms and needs no test on the "arn:"
+// prefix to stay safe.
+//
+// A provisioned-throughput ARN names an opaque id instead, and reduces to
+// "abc123": no vendor, no generation, nothing to classify. That is not an error
+// here. It matches nothing, so every classifier lands on the default it has
+// always used for an id it does not recognise -- "unknown" for the family, the
+// 3.x template for Llama, no thinking dialect for Claude.
+func bedrockResolveModelID(modelID string) string {
+	if i := strings.LastIndex(modelID, "/"); i >= 0 {
+		modelID = modelID[i+1:]
+	}
+	return bedrockStripScope(modelID)
+}
+
 // bedrockClaudeThinkingEra resolves a Bedrock model id to the Claude generation
 // whose thinking dialect it speaks, by reducing the id to the upstream Anthropic
 // one the era table in anthropic.go is written against:
 //
 //	us.anthropic.claude-opus-4-6-v1 -> claude-opus-4-6-v1 -> 4.6
 //
-// A non-Anthropic id reduces to something that starts with neither "claude-" nor
-// a known prefix, so it lands on the era with no thinking field at all.
+// An inference-profile ARN reduces to the same thing, which is what makes the
+// thinking config reachable on a Claude invoked through one: an unresolved ARN
+// starts with neither "claude-" nor a known prefix, so it used to land on the
+// era with no thinking field and drop the caller's thinking config on the floor.
+//
+// A genuinely non-Anthropic id still reduces to something the era table does not
+// know, and still lands on the era with no thinking field at all.
 func bedrockClaudeThinkingEra(modelID string) anthropicThinkingEra {
-	return anthropicThinkingEraFor(strings.TrimPrefix(bedrockStripScope(modelID), "anthropic."))
+	return anthropicThinkingEraFor(strings.TrimPrefix(bedrockResolveModelID(modelID), "anthropic."))
 }
 
 // bedrockEraDimensions reports which thinking knobs lingo can actually ask a
@@ -1343,10 +1387,20 @@ func (m *BedrockModel) WithTemperature(t float64) *BedrockModel { m.temperature 
 func (m *BedrockModel) WithTopP(p float64) *BedrockModel        { m.topP = p; return m }
 func (m *BedrockModel) WithTopK(k int) *BedrockModel            { m.topK = k; return m }
 func (m *BedrockModel) WithSystemPrompt(s string) *BedrockModel { m.systemPrompt = s; return m }
-func (m *BedrockModel) WithModelFamily(f string) *BedrockModel  { m.modelFamily = f; return m }
 
-// NewBedrockModel creates a new generic Bedrock model with the specified model ID
-// modelFamily should be one of: "claude", "nova", "titan", "llama", "mistral"
+// WithModelFamily declares which request format the model speaks: "claude",
+// "nova", "titan", "llama" or "mistral". Setting it back to "" restores the
+// default, which is to classify the model id.
+func (m *BedrockModel) WithModelFamily(f string) *BedrockModel { m.modelFamily = f; return m }
+
+// NewBedrockModel creates a new generic Bedrock model with the specified model ID.
+//
+// modelFamily should be one of: "claude", "nova", "titan", "llama", "mistral".
+// Leave it empty to have the family classified from the model id, which works
+// for a base id, a cross-region inference profile id and an inference-profile
+// ARN alike. Name it explicitly when the id cannot be classified -- a
+// provisioned-throughput ARN carries an opaque id and nothing else -- or when
+// the id would classify to the wrong thing.
 func NewBedrockModel(modelID, modelFamily string) *BedrockModel {
 	return &BedrockModel{
 		modelID:     modelID,
@@ -1362,7 +1416,10 @@ func NewBedrockModel(modelID, modelFamily string) *BedrockModel {
 
 // bedrockClient implements the Provider interface for AWS Bedrock
 type bedrockClient struct {
-	client      *bedrockruntime.Client
+	client *bedrockruntime.Client
+	// healthModel is generated against by Health. Empty -- the default -- means
+	// Health probes without invoking anything; see Health.
+	healthModel string
 	timeout     time.Duration
 	logger      Logger
 	rateLimiter *rateLimiter
@@ -1400,7 +1457,7 @@ func newBedrockClient(bedrockCfg *BedrockConfig, logger Logger) (*bedrockClient,
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	client := bedrockruntime.NewFromConfig(awsCfg)
+	client := newBedrockRuntimeClient(awsCfg)
 
 	timeout := bedrockCfg.Timeout
 	if timeout == 0 {
@@ -1409,10 +1466,162 @@ func newBedrockClient(bedrockCfg *BedrockConfig, logger Logger) (*bedrockClient,
 
 	return &bedrockClient{
 		client:      client,
+		healthModel: bedrockCfg.HealthCheckModel,
 		timeout:     timeout,
 		logger:      logger,
 		rateLimiter: newRateLimiter(bedrockCfg.RateLimiter, logger),
 	}, nil
+}
+
+// newBedrockRuntimeClient builds the SDK client every Bedrock call goes
+// through. It exists so the token-header middleware and the retryer split have
+// exactly one registration site, shared by the production constructor and by
+// the wire tests, instead of a stack the tests do not actually exercise.
+func newBedrockRuntimeClient(awsCfg aws.Config, optFns ...func(*bedrockruntime.Options)) *bedrockruntime.Client {
+	return bedrockruntime.NewFromConfig(awsCfg,
+		append(optFns,
+			bedrockruntime.WithAPIOptions(captureBedrockTokenHeaders),
+			// Resolved defaults are in place by the time an optFn runs
+			// (bedrockruntime@v1.57.3 api_client.go:204,224), so this wraps a
+			// real retryer rather than a nil one.
+			func(o *bedrockruntime.Options) { o.Retryer = lingoOwnedRetryer{Retryer: o.Retryer} },
+		)...)
+}
+
+// ============================================================================
+// INVOKEMODEL TOKEN-COUNT HEADERS
+// ============================================================================
+//
+// Bedrock reports the tokens it billed on every InvokeModel response as
+// X-Amzn-Bedrock-Input-Token-Count and X-Amzn-Bedrock-Output-Token-Count.
+// Neither header is in the Smithy model -- the InvokeModel API reference
+// documents only contentType, performanceConfigLatency and serviceTier as
+// response headers, and bedrockruntime.InvokeModelOutput has fields for exactly
+// those three -- so the SDK parses them into nothing and the only way to see
+// them is to read the raw response before it is discarded.
+//
+// That is what this middleware is for. It is modelled on the SDK's own
+// RequestIDRetriever (aws-sdk-go-v2 aws/middleware/request_id_retriever.go),
+// which pulls X-Amzn-Requestid off the same raw response and stashes it in
+// middleware.Metadata; ResultMetadata on the operation output is that same
+// metadata, so a value set here is readable by the caller with no plumbing.
+//
+// Because the headers are unmodelled they are also unpromised: a response that
+// omits them sets no metadata, and every reader must treat absence as normal.
+// Nothing about the request changes, so no model sees different bytes.
+
+// bedrockTokenHeaderKey is the middleware.Metadata key the captured counts live
+// under. An empty struct type, like the SDK's own metadata keys, so it can
+// collide with nothing else in the map.
+type bedrockTokenHeaderKey struct{}
+
+// bedrockHeaderUsage is what Bedrock said it billed. present is false when the
+// response carried no usable token headers, which is the normal state for any
+// response this middleware did not recognise -- it is never the same as a
+// genuine zero.
+type bedrockHeaderUsage struct {
+	inputTokens  int
+	outputTokens int
+	present      bool
+}
+
+// captureBedrockTokenHeaders registers on the Deserialize step, ahead of the
+// operation deserializer, so it runs after the whole inner chain has returned
+// and can read out.RawResponse. Add is used rather than Insert because Add
+// cannot fail: an Insert that could not find its anchor would return an error
+// from every operation on the client, and a token counter is not worth that.
+func captureBedrockTokenHeaders(stack *middleware.Stack) error {
+	return stack.Deserialize.Add(middleware.DeserializeMiddlewareFunc(
+		"lingoBedrockTokenHeaders",
+		func(ctx context.Context, in middleware.DeserializeInput, next middleware.DeserializeHandler) (
+			middleware.DeserializeOutput, middleware.Metadata, error,
+		) {
+			out, metadata, err := next.HandleDeserialize(ctx, in)
+			if err != nil {
+				return out, metadata, err
+			}
+			resp, ok := out.RawResponse.(*smithyhttp.Response)
+			if !ok {
+				return out, metadata, err
+			}
+			var u bedrockHeaderUsage
+			if n, ok := bedrockAtoi(resp.Header.Get("X-Amzn-Bedrock-Input-Token-Count")); ok {
+				u.inputTokens, u.present = n, true
+			}
+			if n, ok := bedrockAtoi(resp.Header.Get("X-Amzn-Bedrock-Output-Token-Count")); ok {
+				u.outputTokens, u.present = n, true
+			}
+			if u.present {
+				metadata.Set(bedrockTokenHeaderKey{}, u)
+			}
+			return out, metadata, err
+		},
+	), middleware.Before)
+}
+
+// bedrockAtoi reads one unmodelled header value. A missing, malformed or
+// negative count reads as "nothing was reported" rather than as a zero, because
+// for cost tracking those are not the same claim.
+func bedrockAtoi(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// bedrockCompleteUsage fills the gaps in a family's body-reported usage from the
+// counts Bedrock put in the response headers, and names the sources the result
+// came from -- "" when the headers contributed nothing, so a family that
+// reported for itself is never relabelled.
+//
+// The body wins wherever it reported, for three reasons: it is the model's own
+// accounting, it is modelled and documented where the headers are neither, and
+// on at least one family it does not even mean the same thing -- Claude's
+// input_tokens excludes the cache counters reported beside it, so a header input
+// count is a different number rather than a better one. The headers are a
+// fallback here and never an override.
+//
+// Only a zero counts as a gap. That is exact for the two families this is used
+// on -- Titan reports inputTextTokenCount and results[].tokenCount, Mistral
+// reports neither, and no real generation costs zero prompt tokens or produces
+// zero completion tokens -- and it is why the rule is applied per family instead
+// of centrally in Generate, where it would eventually meet a family whose zero
+// is a real answer.
+//
+// TotalTokens is recomputed from the two parts whenever either moves, so a
+// filled-in count can never leave the three numbers disagreeing.
+func bedrockCompleteUsage(u TokenUsage, hdr bedrockHeaderUsage) (TokenUsage, string) {
+	if !hdr.present {
+		return u, ""
+	}
+	fromBody := u.PromptTokens > 0 || u.CompletionTokens > 0
+	var filled bool
+	if u.PromptTokens == 0 && hdr.inputTokens > 0 {
+		u.PromptTokens, filled = hdr.inputTokens, true
+	}
+	if u.CompletionTokens == 0 && hdr.outputTokens > 0 {
+		u.CompletionTokens, filled = hdr.outputTokens, true
+	}
+	if !filled {
+		return u, ""
+	}
+	u.TotalTokens = u.PromptTokens + u.CompletionTokens
+	if fromBody {
+		return u, "body+response_headers"
+	}
+	return u, "response_headers"
+}
+
+// bedrockHeaderUsageFrom reads back what captureBedrockTokenHeaders stashed.
+// The zero value means the response reported nothing, so callers can use the
+// result unconditionally.
+func bedrockHeaderUsageFrom(md middleware.Metadata) bedrockHeaderUsage {
+	u, _ := md.Get(bedrockTokenHeaderKey{}).(bedrockHeaderUsage)
+	return u
 }
 
 // Bedrock request/response types for different model families
@@ -1541,7 +1750,12 @@ type bedrockTitanConfig struct {
 }
 
 type bedrockTitanResponse struct {
-	Results []bedrockTitanResult `json:"results"`
+	// InputTextTokenCount is Titan's own prompt count, reported beside the
+	// results rather than inside them. It was never modelled, which is why
+	// PromptTokens came back 0 on every Titan call; a response that omits it
+	// leaves the gap for the response headers to fill.
+	InputTextTokenCount int                  `json:"inputTextTokenCount"`
+	Results             []bedrockTitanResult `json:"results"`
 }
 
 type bedrockTitanResult struct {
@@ -1626,9 +1840,12 @@ type bedrockMistralOutput struct {
 // Cross-region inference profile IDs prefix the base model ID with a routing
 // scope (e.g. "us.anthropic.claude-...", "global.anthropic.claude-..."); many
 // newer Bedrock models are only invokable through such profiles, so the prefix
-// is stripped before matching the provider.
+// is stripped before matching the provider. An inference-profile ARN carries the
+// same id in its last segment and resolves to the same family; a
+// provisioned-throughput ARN carries an opaque id and stays "unknown", which
+// Generate reports as an unsupported family rather than guessing.
 func getModelFamily(modelID string) string {
-	id := bedrockStripScope(modelID)
+	id := bedrockResolveModelID(modelID)
 	switch {
 	case strings.HasPrefix(id, "anthropic."):
 		return "claude"
@@ -1643,6 +1860,31 @@ func getModelFamily(modelID string) string {
 	default:
 		return "unknown"
 	}
+}
+
+// bedrockFamilyFor decides which family builds the request for one model.
+//
+// Every model type but the escape hatch answers from its id, because its id is
+// the only thing it has. BedrockModel can also carry a declared family, and a
+// declaration wins: the caller may know something the id does not say, and a
+// provisioned-throughput ARN says nothing at all, so overriding it would take
+// away the only way to use one.
+//
+// An empty family is not a declaration. NewBedrockModel("us.anthropic.claude-opus-5", "")
+// used to be a dead end -- the empty string reached the family switch verbatim
+// and came back "unsupported model family: " for an id that classifies
+// perfectly -- so an unset family now means what it reads as, "work it out from
+// the id". That matters more since ARNs classify too: an inference-profile ARN
+// names its model in its last segment and needs no second opinion from the
+// caller.
+//
+// An id that classifies to nothing still lands on "unknown", which Generate
+// still refuses loudly. Silence is the one thing this must not buy.
+func bedrockFamilyFor(model Model, modelID string) string {
+	if bm, ok := model.(*BedrockModel); ok && bm.modelFamily != "" {
+		return bm.modelFamily
+	}
+	return getModelFamily(modelID)
 }
 
 // bedrockUsesConverse reports whether a family is served by the Converse API
@@ -1678,13 +1920,7 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 
 	modelID := model.ModelName()
 
-	// Determine model family
-	var modelFamily string
-	if bm, ok := model.(*BedrockModel); ok {
-		modelFamily = bm.modelFamily
-	} else {
-		modelFamily = getModelFamily(modelID)
-	}
+	modelFamily := bedrockFamilyFor(model, modelID)
 
 	if bedrockUsesConverse(modelFamily) {
 		return c.generateConverse(ctx, model, prompt, modelID, modelFamily)
@@ -1708,7 +1944,11 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 	case "mistral":
 		body, err = c.buildMistralRequest(model, prompt)
 	default:
-		return nil, fmt.Errorf("unsupported model family: %s", modelFamily)
+		// Reached by a declared family lingo has no builder for, and by an id
+		// that classifies to nothing -- a provisioned-throughput ARN, say.
+		// Naming the id as well as the family is what tells the second case
+		// apart from the first, and the fix for it is WithModelFamily.
+		return nil, fmt.Errorf("unsupported model family: %s (model %s)", modelFamily, modelID)
 	}
 	if err != nil {
 		return nil, err
@@ -1744,6 +1984,14 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 		return nil, fmt.Errorf("bedrock generation failed: %w", err)
 	}
 
+	// What Bedrock said it billed. Only the two families whose bodies leave a
+	// gap consume it: Mistral, whose response carries no counts at all, and
+	// Titan, whose response carries a completion count and -- in the shape lingo
+	// modelled -- no prompt one. Claude, Llama and Nova each report a complete
+	// set for themselves and are left reading their own body, so no number lingo
+	// already reports can move.
+	headerUsage := bedrockHeaderUsageFrom(output.ResultMetadata)
+
 	// Parse response based on model family
 	var response *GenerationResponse
 	switch modelFamily {
@@ -1752,11 +2000,11 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 	case "nova":
 		response, err = c.parseNovaResponse(output.Body, modelID)
 	case "titan":
-		response, err = c.parseTitanResponse(output.Body, modelID)
+		response, err = c.parseTitanResponse(output.Body, modelID, headerUsage)
 	case "llama":
 		response, err = c.parseLlamaResponse(output.Body, modelID)
 	case "mistral":
-		response, err = c.parseMistralResponse(output.Body, modelID)
+		response, err = c.parseMistralResponse(output.Body, modelID, headerUsage)
 	}
 	if err != nil {
 		return nil, err
@@ -2328,6 +2576,30 @@ func (c *bedrockClient) generateConverse(ctx context.Context, model Model, promp
 	return response, nil
 }
 
+// buildTitanRequest builds the Titan Text InvokeModel body.
+//
+// Titan has no system prompt, and lingo cannot give it one. AWS documents the
+// whole request body as
+//
+//	{"inputText": string,
+//	 "textGenerationConfig": {"temperature", "topP", "maxTokenCount", "stopSequences"}}
+//
+// (Amazon Bedrock User Guide, "Amazon Titan Text models", Request) -- there is
+// no system field, no instructions field and no role structure anywhere in it,
+// and AWS's own guidance for expressing a conversation is to write the roles as
+// plain text inside inputText, as in its documented `"inputText": "User:
+// {{prompt}}\nBot:"` form. Titan Text is not served by Converse either, so
+// there is no second dialect here with a system block to borrow.
+//
+// So a system prompt set on a Titan model is concatenated ahead of the user
+// prompt with a blank line between them, and callers should know what that
+// buys: the blank line is the entire boundary. There are no control tokens on
+// this API to forge -- which is why the Llama and Mistral escaping in this file
+// has no Titan equivalent -- but there is also nothing that tells the model the
+// first paragraph outranks the second, so prompt text that contradicts the
+// system text is arguing on equal terms. A caller who needs an instruction the
+// user's text cannot restate needs a family whose API models one: Claude, Nova,
+// Llama and Mistral all do.
 func (c *bedrockClient) buildTitanRequest(model Model, prompt string) ([]byte, error) {
 	req := bedrockTitanRequest{
 		InputText: prompt,
@@ -2338,7 +2610,8 @@ func (c *bedrockClient) buildTitanRequest(model Model, prompt string) ([]byte, e
 		},
 	}
 
-	// Prepend system prompt if set
+	// Prepend system prompt if set. A blank line is the only boundary this API
+	// offers; see the doc comment.
 	if model.SystemPrompt() != "" {
 		req.InputText = model.SystemPrompt() + "\n\n" + prompt
 	}
@@ -2390,17 +2663,213 @@ func (c *bedrockClient) buildTitanRequest(model Model, prompt string) ([]byte, e
 	return json.Marshal(req)
 }
 
-func (c *bedrockClient) buildLlamaRequest(model Model, prompt string) ([]byte, error) {
-	// Build Llama prompt format
-	var fullPrompt string
-	if model.SystemPrompt() != "" {
-		fullPrompt = fmt.Sprintf("<s>[INST] <<SYS>>\n%s\n<</SYS>>\n\n%s [/INST]", model.SystemPrompt(), prompt)
-	} else {
-		fullPrompt = fmt.Sprintf("<s>[INST] %s [/INST]", prompt)
-	}
+// bedrockLlamaTokens is the set of role/turn markers one Llama generation uses.
+// The generations do not share a template: Llama 3 (and 3.1, 3.2, 3.3) encloses
+// a role in <|start_header_id|>/<|end_header_id|> and closes a turn with
+// <|eot_id|>, while Llama 4 renamed all three to
+// <|header_start|>/<|header_end|>/<|eot|> and does not carry the 3.x spellings
+// in its vocabulary at all, so a 3.x prompt reaches Llama 4 as ordinary text.
+type bedrockLlamaTokens struct {
+	headerOpen  string
+	headerClose string
+	endOfTurn   string
+	// endOfMessage is the other way a turn can end -- the tool-calling variant
+	// of endOfTurn. The template never writes it, but it is a reserved id all
+	// the same, so caller-supplied text must not be able to smuggle one in.
+	endOfMessage string
+}
 
+// The two text-boundary tokens are spelled the same in both generations'
+// vocabularies, so they sit outside the per-generation set.
+const (
+	bedrockLlamaBeginOfText = "<|begin_of_text|>"
+	bedrockLlamaEndOfText   = "<|end_of_text|>"
+)
+
+var (
+	bedrockLlama3Tokens = bedrockLlamaTokens{
+		headerOpen:   "<|start_header_id|>",
+		headerClose:  "<|end_header_id|>",
+		endOfTurn:    "<|eot_id|>",
+		endOfMessage: "<|eom_id|>",
+	}
+	bedrockLlama4Tokens = bedrockLlamaTokens{
+		headerOpen:   "<|header_start|>",
+		headerClose:  "<|header_end|>",
+		endOfTurn:    "<|eot|>",
+		endOfMessage: "<|eom|>",
+	}
+)
+
+// specials is everything this generation reserves that could restructure a
+// prompt: the tokens the template writes, the two text boundaries and the
+// end-of-message variant of the turn boundary. Deliberately nothing else --
+// the multimodal and tool ids are reserved too, but they cannot forge a turn,
+// and every token listed here is one that stops being ordinary text in a
+// caller's document.
+//
+// The two lists share only the text boundaries; every turn marker in one is
+// ordinary text to the other, which is the point: "<|eot_id|>" is a reserved id
+// to Llama 3 and plain text to Llama 4.
+func (t bedrockLlamaTokens) specials() []string {
+	return []string{
+		bedrockLlamaBeginOfText, bedrockLlamaEndOfText,
+		t.headerOpen, t.headerClose, t.endOfTurn, t.endOfMessage,
+	}
+}
+
+// render lays out one system message (when there is one), one user message and
+// the opening header of the assistant turn the model is asked to complete. The
+// two newlines after every header and the two that end the prompt are part of
+// the template, not decoration: Meta's own encoder appends "\n\n" after each
+// header and ends a generation prompt with the assistant header, so dropping
+// the trailing pair leaves the model completing a header rather than a reply.
+//
+// Both caller-supplied strings are neutralized here rather than at the call
+// site, so no future caller of render can forget to do it. See
+// bedrockNeutralizeControlTokens for what that means for the text.
+func (t bedrockLlamaTokens) render(system, prompt string) string {
+	specials := t.specials()
+	system = bedrockNeutralizeControlTokens(system, specials)
+	prompt = bedrockNeutralizeControlTokens(prompt, specials)
+
+	var b strings.Builder
+	b.WriteString(bedrockLlamaBeginOfText)
+	if system != "" {
+		b.WriteString(t.headerOpen + "system" + t.headerClose + "\n\n" + system + t.endOfTurn)
+	}
+	b.WriteString(t.headerOpen + "user" + t.headerClose + "\n\n" + prompt + t.endOfTurn)
+	b.WriteString(t.headerOpen + "assistant" + t.headerClose + "\n\n")
+	return b.String()
+}
+
+// bedrockLlama2Specials and bedrockMistralSpecials are the turn boundaries of
+// the two templates that still speak in bracket markers.
+//
+// Whether a tokenizer reserves an id for "[INST]" varies by version -- Mistral
+// v3 does, v0.1 and v0.2 do not -- but that is not what makes the marker
+// dangerous. These templates delimit turns with literal text, so an injected
+// "[/INST]" ends the instruction and opens the answer whether or not the
+// tokenizer gave it an id of its own. "<s>" is a reserved id in every version.
+var (
+	bedrockLlama2Specials  = []string{"<s>", "</s>", "[INST]", "[/INST]", "<<SYS>>", "<</SYS>>"}
+	bedrockMistralSpecials = []string{"<s>", "</s>", "[INST]", "[/INST]"}
+)
+
+// bedrockNeutralizeControlTokens rewrites every occurrence of the given control
+// tokens in caller-supplied text, so that text can only ever be read as content.
+//
+// This is the price of emitting a generation's real control tokens. Under the
+// old Llama 2 template the interpolation was inert on a Llama 3 or 4 model,
+// because "<s>" and "[INST]" are ordinary text to those tokenizers. Now that
+// lingo writes the tokens the model actually reserves, a prompt or system
+// prompt containing "<|eot_id|><|start_header_id|>system<|end_header_id|>"
+// would close its own turn and open a forged system turn. Meta's own encoder
+// never has this problem because it tokenizes message content with
+// special-token parsing disabled; lingo hands Bedrock one raw string and has no
+// way to ask for that, so the neutralization has to happen in the string.
+//
+// A token is neutralized by escaping it, not by removing it -- see
+// bedrockEscapeControlToken for the shape. Escaping rather than stripping, for
+// two reasons:
+//
+//   - Deleting a token can create one. "<|eot<|eot_id|>_id|>" is a string a
+//     caller may legitimately send, and deleting the inner token splices the
+//     surviving halves into a real "<|eot_id|>". Escaping only ever inserts, and
+//     an insertion cannot bring previously separated characters together, so a
+//     single pass is provably enough.
+//   - The caller wrote that text as content. A document that quotes a Llama chat
+//     template still reads as itself with a backslash in it; with the tokens
+//     deleted it reads as a corrupted template.
+//
+// Only whole tokens match, so ordinary prose that merely contains angle
+// brackets or pipes -- "a < b | c > d", "<div>", "|col|col|", "<<EOF" -- comes
+// back byte for byte. And only the tokens of the generation being rendered are
+// passed in, so nothing is escaped that the model would have read as text
+// anyway.
+func bedrockNeutralizeControlTokens(s string, tokens []string) string {
+	for _, tok := range tokens {
+		// An empty token would match everywhere and mean nothing; skipping it
+		// keeps a half-filled token set from turning into a rewrite of the
+		// whole string.
+		if tok != "" && strings.Contains(s, tok) {
+			s = strings.ReplaceAll(s, tok, bedrockEscapeControlToken(tok))
+		}
+	}
+	return s
+}
+
+// bedrockEscapeControlToken breaks one control token by inserting a backslash
+// after its opening character: "<|eot_id|>" becomes "<\|eot_id|>", "[INST]"
+// becomes "[\INST]", "<s>" becomes "<\s>".
+//
+// The backslash has to go inside the token. Prefixing one would leave the token
+// intact as a substring, and a tokenizer scanning for reserved ids would match
+// it one byte further along and be forged exactly as before.
+func bedrockEscapeControlToken(tok string) string {
+	if len(tok) < 2 {
+		return tok
+	}
+	return tok[:1] + `\` + tok[1:]
+}
+
+// bedrockLlamaGeneration reads the major Llama generation out of a Bedrock model
+// id, reusing getModelFamily's convention of reducing the id to its vendor form
+// first:
+//
+//	us.meta.llama3-3-70b-instruct-v1:0    -> meta.llama3-3-... -> 3
+//	meta.llama4-scout-17b-instruct-v1:0                        -> 4
+//	arn:...:inference-profile/us.meta.llama4-scout-17b-instruct-v1:0 -> 4
+//
+// The ARN form matters as much as the other two: a Llama 4 reached through an
+// inference-profile ARN that classified as "not a Llama at all" would be sent
+// the 3.x template, which is the exact off-template bug this classifier exists
+// to prevent.
+//
+// An id that does not name a generation reports 0, which the caller reads as
+// "the 3.x template", the shape every Llama on Bedrock except Llama 4 speaks.
+func bedrockLlamaGeneration(modelID string) int {
+	rest, ok := strings.CutPrefix(strings.TrimPrefix(bedrockResolveModelID(modelID), "meta."), "llama")
+	if !ok {
+		return 0
+	}
+	gen := 0
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			break
+		}
+		gen = gen*10 + int(r-'0')
+	}
+	return gen
+}
+
+// bedrockLlamaPrompt renders a single-turn conversation in the template the
+// given Llama model id speaks.
+func bedrockLlamaPrompt(modelID, system, prompt string) string {
+	switch gen := bedrockLlamaGeneration(modelID); {
+	case gen == 2:
+		// Llama 2. No Llama 2 model ships in lingo and Bedrock has retired them,
+		// but the escape hatch can still be handed a meta.llama2- id, and this is
+		// the template that id does speak. Its markers are neutralized in the
+		// caller's text for the same reason the 3.x and 4 ones are: they are
+		// this template's turn boundaries, so an injected "[/INST]" ends the
+		// instruction here just as an injected "<|eot_id|>" ends the turn there.
+		system = bedrockNeutralizeControlTokens(system, bedrockLlama2Specials)
+		prompt = bedrockNeutralizeControlTokens(prompt, bedrockLlama2Specials)
+		if system != "" {
+			return fmt.Sprintf("<s>[INST] <<SYS>>\n%s\n<</SYS>>\n\n%s [/INST]", system, prompt)
+		}
+		return fmt.Sprintf("<s>[INST] %s [/INST]", prompt)
+	case gen >= 4:
+		return bedrockLlama4Tokens.render(system, prompt)
+	default:
+		return bedrockLlama3Tokens.render(system, prompt)
+	}
+}
+
+func (c *bedrockClient) buildLlamaRequest(model Model, prompt string) ([]byte, error) {
 	req := bedrockLlamaRequest{
-		Prompt:      fullPrompt,
+		Prompt:      bedrockLlamaPrompt(model.ModelName(), model.SystemPrompt(), prompt),
 		MaxGenLen:   2048,
 		Temperature: 0.6,
 		TopP:        0.9,
@@ -2504,10 +2973,17 @@ func (c *bedrockClient) buildLlamaRequest(model Model, prompt string) ([]byte, e
 }
 
 func (c *bedrockClient) buildMistralRequest(model Model, prompt string) ([]byte, error) {
-	// Build Mistral prompt format
+	// Build Mistral prompt format. Mistral's markers are as load-bearing in its
+	// template as Llama's are in theirs -- an injected "[/INST]" ends the
+	// instruction and opens the answer -- so the caller's text is neutralized
+	// the same way. This exposure predates the Llama template fix rather than
+	// coming with it, but it is the same hole and it is treated the same.
+	system := bedrockNeutralizeControlTokens(model.SystemPrompt(), bedrockMistralSpecials)
+	prompt = bedrockNeutralizeControlTokens(prompt, bedrockMistralSpecials)
+
 	var fullPrompt string
-	if model.SystemPrompt() != "" {
-		fullPrompt = fmt.Sprintf("<s>[INST] %s\n\n%s [/INST]", model.SystemPrompt(), prompt)
+	if system != "" {
+		fullPrompt = fmt.Sprintf("<s>[INST] %s\n\n%s [/INST]", system, prompt)
 	} else {
 		fullPrompt = fmt.Sprintf("<s>[INST] %s [/INST]", prompt)
 	}
@@ -2816,7 +3292,31 @@ func (c *bedrockClient) parseConverseOutput(output *bedrockruntime.ConverseOutpu
 	return result, nil
 }
 
-func (c *bedrockClient) parseTitanResponse(body []byte, modelID string) (*GenerationResponse, error) {
+// parseTitanResponse takes the header counts because Titan's body reports half
+// the story in practice: results[].tokenCount is the completion count and
+// inputTextTokenCount the prompt one, and lingo modelled only the first, so
+// every Titan call reported PromptTokens 0 and a TotalTokens that was really
+// the completion count. The body is still preferred wherever it reports; hdr
+// fills what is missing, and when hdr is the zero value the numbers are the
+// ones Titan itself gave, never a fabricated one.
+//
+// The answer is results[0], and that is a stated assumption rather than an
+// accident. AWS documents the field as "results -- An array of one item"
+// (Amazon Bedrock User Guide, "Amazon Titan Text models", InvokeModel
+// Response), and lingo could not ask for a second completion even if it wanted
+// one: bedrockTitanRequest and bedrockTitanConfig model inputText,
+// maxTokenCount, temperature and topP, and no numResults field exists in either
+// for a caller or this package to set. The alternative -- returning several
+// completions -- would need a GenerationResponse that holds more than one Text,
+// which no provider in this library has and none of them can currently produce.
+//
+// What the assumption must not do is hide a surprise, so it is not trusted
+// blindly. Bedrock bills every result it generated, so CompletionTokens sums
+// the token count of all of them rather than of the one whose text is returned;
+// and a response that carried more than one records how many in
+// Metadata["results"], which turns a silent drop into a visible one. In the
+// documented single-result case both are exactly what they always were.
+func (c *bedrockClient) parseTitanResponse(body []byte, modelID string, hdr bedrockHeaderUsage) (*GenerationResponse, error) {
 	var resp bedrockTitanResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("failed to parse Titan response: %w", err)
@@ -2827,19 +3327,34 @@ func (c *bedrockClient) parseTitanResponse(body []byte, modelID string) (*Genera
 	}
 
 	result := resp.Results[0]
+	completionTokens := 0
+	for _, r := range resp.Results {
+		completionTokens += r.TokenCount
+	}
+	usage, source := bedrockCompleteUsage(TokenUsage{
+		PromptTokens:     resp.InputTextTokenCount,
+		CompletionTokens: completionTokens,
+		TotalTokens:      resp.InputTextTokenCount + completionTokens,
+	}, hdr)
+
+	metadata := map[string]string{
+		"provider": "bedrock",
+		"model":    modelID,
+		"family":   "titan",
+	}
+	if source != "" {
+		metadata["usage_source"] = source
+	}
+	if n := len(resp.Results); n > 1 {
+		metadata["results"] = fmt.Sprintf("%d", n)
+	}
+
 	return &GenerationResponse{
 		Text:         result.OutputText,
 		Model:        modelID,
 		FinishReason: result.CompletionReason,
-		Usage: TokenUsage{
-			CompletionTokens: result.TokenCount,
-			TotalTokens:      result.TokenCount,
-		},
-		Metadata: map[string]string{
-			"provider": "bedrock",
-			"model":    modelID,
-			"family":   "titan",
-		},
+		Usage:        usage,
+		Metadata:     metadata,
 	}, nil
 }
 
@@ -2866,7 +3381,23 @@ func (c *bedrockClient) parseLlamaResponse(body []byte, modelID string) (*Genera
 	}, nil
 }
 
-func (c *bedrockClient) parseMistralResponse(body []byte, modelID string) (*GenerationResponse, error) {
+// parseMistralResponse takes the header counts because Mistral's InvokeModel
+// response body has nowhere to put them: AWS documents the body as
+// {"outputs":[{"text","stop_reason"}]} and nothing else, which is why this
+// function used to report a zeroed TokenUsage and why cost tracking silently
+// under-reported every Mistral call. hdr is the zero value when the response
+// carried no token headers, in which case the old zeroed usage is what comes
+// back -- the same numbers as before, never a fabricated one.
+//
+// The answer is outputs[0] on the same terms Titan's results[0] is: no
+// numResults or n field exists in bedrockMistralRequest for anything to set, so
+// one output is what a lingo request can produce, and GenerationResponse holds
+// one Text either way. Nothing billed is dropped by the choice -- the outputs
+// carry no token counts at all, and the header counts cover the whole call
+// however many outputs it produced -- so only alternative text could go
+// missing, and a response that carried more than one output says so in
+// Metadata["outputs"] rather than saying nothing.
+func (c *bedrockClient) parseMistralResponse(body []byte, modelID string, hdr bedrockHeaderUsage) (*GenerationResponse, error) {
 	var resp bedrockMistralResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("failed to parse Mistral response: %w", err)
@@ -2876,46 +3407,77 @@ func (c *bedrockClient) parseMistralResponse(body []byte, modelID string) (*Gene
 		return nil, fmt.Errorf("no outputs in Mistral response")
 	}
 
+	// Every number here is a gap, so bedrockCompleteUsage fills all of them and
+	// labels the result "response_headers" rather than the mixed label Titan
+	// gets. The label is recorded because these numbers did not come from the
+	// model the way every other family's do, and an unmodelled header can stop
+	// arriving without any version of anything changing.
+	usage, source := bedrockCompleteUsage(TokenUsage{}, hdr)
+	metadata := map[string]string{
+		"provider": "bedrock",
+		"model":    modelID,
+		"family":   "mistral",
+	}
+	if source != "" {
+		metadata["usage_source"] = source
+	}
+	if n := len(resp.Outputs); n > 1 {
+		metadata["outputs"] = fmt.Sprintf("%d", n)
+	}
+
 	output := resp.Outputs[0]
 	return &GenerationResponse{
 		Text:         output.Text,
 		Model:        modelID,
 		FinishReason: output.StopReason,
-		Usage:        TokenUsage{}, // Mistral doesn't return token counts
-		Metadata: map[string]string{
-			"provider": "bedrock",
-			"model":    modelID,
-			"family":   "mistral",
-		},
+		Usage:        usage,
+		Metadata:     metadata,
 	}, nil
 }
 
-// Health checks the health of the Bedrock client
+// Health checks the health of the Bedrock client.
+//
+// By default it invokes nothing. Health is asked whether this client can reach
+// Bedrock with usable credentials, and every question of the form "can it
+// generate against model X" answers something narrower: a customer without
+// access to X gets a failure that says nothing about the provider. Bedrock has
+// no models endpoint on the runtime API, but it does have one operation that
+// names no model at all -- ListAsyncInvokes, "GET /async-invoke", "The request
+// does not have a request body" (Amazon Bedrock API Reference,
+// ListAsyncInvokes) -- so that is what the default probe calls: it proves
+// credentials, region and endpoint, generates no tokens and costs nothing.
+// This is the choice cohere.go (CheckApiKey), ollama.go (/api/tags) and
+// oaicompat.go (Models.List) already make wherever the provider offers a call
+// cheaper than a generation.
+//
+// It used to invoke amazon.titan-text-lite-v1, chosen as "most widely
+// available". That stopped being true: the Titan Text models are past
+// end-of-life on Bedrock and no longer in the model catalogue, so on an account
+// without Titan access the health check failed for a reason unrelated to
+// health -- exactly the failure mode this design avoids.
+//
+// A caller who does want the narrower question answered sets
+// BedrockConfig.HealthCheckModel, and that model is generated against for five
+// tokens through the ordinary Generate path, so the probe exercises the same
+// family routing and the same request builders a real call would. It is the
+// caller's to name because only they know which models their account has --
+// the same reason AnthropicConfig and OpenAICompatibleConfig take one.
 func (c *bedrockClient) Health(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Use a simple Titan model for health check (most widely available)
-	req := bedrockTitanRequest{
-		InputText: "Hello",
-		TextGenerationConfig: bedrockTitanConfig{
-			MaxTokenCount: 5,
-			Temperature:   0.5,
-			TopP:          0.9,
-		},
+	if c.healthModel != "" {
+		// An empty family classifies from the id, so a health model may be
+		// named as a base id, a cross-region profile id or an ARN.
+		if _, err := c.Generate(ctx, NewBedrockModel(c.healthModel, "").WithMaxTokens(5), "Hello"); err != nil {
+			return fmt.Errorf("bedrock health check failed: %w", err)
+		}
+		return nil
 	}
 
-	body, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("bedrock health check failed: %w", err)
-	}
-
-	_, err = c.client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
-		ModelId:     aws.String("amazon.titan-text-lite-v1"),
-		Body:        body,
-		ContentType: aws.String("application/json"),
-	})
-	if err != nil {
+	if _, err := c.client.ListAsyncInvokes(ctx, &bedrockruntime.ListAsyncInvokesInput{
+		MaxResults: aws.Int32(1),
+	}); err != nil {
 		return fmt.Errorf("bedrock health check failed: %w", err)
 	}
 

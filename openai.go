@@ -1159,7 +1159,12 @@ func newOpenAIClient(config *OpenAIConfig, logger Logger) (*openAIClient, error)
 		return nil, fmt.Errorf("OpenAI API key is required")
 	}
 
-	opts := []option.RequestOption{option.WithAPIKey(config.APIKey)}
+	// The retry suppression goes on first so a caller's own options still get
+	// the last word.
+	opts := []option.RequestOption{
+		option.WithMiddleware(suppressStainlessRetry),
+		option.WithAPIKey(config.APIKey),
+	}
 	if config.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(config.BaseURL))
 	}
@@ -1515,6 +1520,10 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 		return nil, fmt.Errorf("no response choices returned from OpenAI")
 	}
 
+	// One choice is all there can be: this package never sets n, so the API
+	// default of one applies, and usage is reported once for the whole response
+	// rather than per choice -- so reading choices[0] cannot drop a token
+	// anyone was billed for, only an alternative wording nobody asked for.
 	choice := resp.Choices[0]
 
 	// Build response

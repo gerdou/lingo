@@ -233,6 +233,11 @@ config := &lingo.GoogleConfig{UseVertexAI: true, APIKey: "your-vertex-api-key"}
 
 ### AWS Bedrock
 
+> **Upgrading?** Bedrock's Llama models are now prompted in their own chat
+> template instead of the Llama 2 one lingo used to send, so their output will
+> change. See [Llama prompt templates](#llama-prompt-templates-behaviour-change)
+> below.
+
 ```go
 config := &lingo.BedrockConfig{
     Region: "us-east-1",
@@ -254,10 +259,172 @@ model := lingo.NewBedrockClaudeOpus48()
 model := lingo.NewBedrockNovaPro()
 model := lingo.NewBedrockLlama4Maverick()
 
+// Or with a health check that generates against a model you know you have,
+// instead of the default no-inference probe
+config := &lingo.BedrockConfig{
+    Region:           "us-east-1",
+    HealthCheckModel: "us.anthropic.claude-opus-5",
+}
+
 // Any Bedrock model by ID, including cross-region inference profiles
 // (required for many newer models outside their home regions)
 model := lingo.NewBedrockModel("us.anthropic.claude-opus-5", "claude")
+
+// The family is optional: leave it empty and lingo classifies the id, which
+// works for base ids, cross-region profile ids and inference-profile ARNs
+model := lingo.NewBedrockModel("us.anthropic.claude-opus-5", "")
+
+// Name it explicitly when the id carries nothing to classify, as with a
+// provisioned-throughput ARN
+model := lingo.NewBedrockModel(
+    "arn:aws:bedrock:us-east-1:123456789012:provisioned-model/abc123", "claude")
+
+// An inference-profile or provisioned-throughput ARN works too. Lingo resolves
+// it to the model id in its last segment, so it is classified as the model it
+// names rather than as an unknown string
+model := lingo.NewBedrockModel(
+    "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.meta.llama4-scout-17b-instruct-v1:0",
+    "llama")
 ```
+
+#### Llama prompt templates (behaviour change)
+
+Bedrock's `InvokeModel` path takes the Llama prompt as one raw string and does
+no templating of its own, so the role markers around your prompt are lingo's to
+write. Lingo used to write the **Llama 2** chat template — `<s>[INST]
+<<SYS>>...<</SYS>>...[/INST]` — for every Llama model, and lingo ships no Llama
+2 model: every Bedrock Llama type it offers is 3.1, 3.2, 3.3 or 4. To those
+tokenizers `<s>`, `[INST]`, `[/INST]` and `<<SYS>>` are ordinary text, not
+special tokens, so every call arrived off-template, with no BOS token, no role
+headers and four literal junk markers around the prompt.
+
+Lingo now writes the template the model actually speaks, chosen from the model
+id, and the two generations do not share one — Llama 4 renamed all three
+structural tokens:
+
+| Generation | Role header | End of turn |
+| --- | --- | --- |
+| Llama 3, 3.1, 3.2, 3.3 | `<\|start_header_id\|>` ... `<\|end_header_id\|>` | `<\|eot_id\|>` |
+| Llama 4 Scout, Maverick | `<\|header_start\|>` ... `<\|header_end\|>` | `<\|eot\|>` |
+
+```text
+meta.llama3-3-70b-instruct-v1:0, system "be terse", prompt "hello"
+  before: <s>[INST] <<SYS>>\nbe terse\n<</SYS>>\n\nhello [/INST]
+  after:  <|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nbe terse<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nhello<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n
+
+meta.llama4-scout-17b-instruct-v1:0, no system prompt, prompt "hello"
+  before: <s>[INST] hello [/INST]
+  after:  <|begin_of_text|><|header_start|>user<|header_end|>\n\nhello<|eot|><|header_start|>assistant<|header_end|>\n\n
+```
+
+**What this means when you upgrade.** Nothing changes at the call site — the
+model builders, `WithSystemPrompt`, `WithMaxTokens`, `WithTemperature` and
+`WithTopP` all behave exactly as before, and `max_gen_len`, `temperature` and
+`top_p` go out unchanged — but the bytes your Llama models receive are
+different, so **their generated text will shift**. It is expected to shift for
+the better: instruction following, system-prompt adherence and stop behaviour
+all improve when a model is prompted in its own template. Prompts that were
+tuned against the broken template may want re-tuning, and `prompt_token_count`
+(and therefore lingo's cost accounting) drops, because the markers now tokenize
+as one special id each instead of a dozen-odd tokens of literal text.
+
+Only the Llama family moved. Claude, Nova, Mistral and Titan request bodies are
+byte-for-byte what they were. `NewBedrockModel(id, "llama")` is templated from
+the id it carries, cross-region scope and all, so `us.meta.llama3-3-...` gets the
+3.x template and `eu.meta.llama4-scout-...` the Llama 4 one; a `meta.llama2-...`
+id — the one thing the escape hatch can carry that really does speak the old
+template — still gets it. An ARN is resolved to the id in its last segment
+first, so `arn:...:inference-profile/us.meta.llama4-scout-...` is templated as
+the Llama 4 it names. An ARN with no model id in it, such as
+`arn:...:provisioned-model/abc123`, keeps the 3.x default — the template every
+Bedrock Llama but Llama 4 speaks.
+
+#### Control tokens in your prompts
+
+Writing the real template has one consequence worth naming: the tokens lingo
+emits are now the tokens the model reserves, so caller text that contains them
+is no longer inert. A prompt or system prompt carrying
+`<|eot_id|><|start_header_id|>system<|end_header_id|>` would close its own turn
+and open a forged system turn. That is the string-level version of a problem
+Meta's own encoder avoids by tokenizing message content with special-token
+parsing switched off — not something a raw `InvokeModel` prompt string can ask
+for.
+
+So lingo escapes them. Before interpolation, every control token of the
+generation being rendered is broken with a backslash after its opening
+character: `<|eot_id|>` goes out as `<\|eot_id|>`, `[/INST]` as `[\/INST]`. The
+text stays legible and nothing is deleted; it just stops being structure.
+
+- Only whole tokens match. Prose that merely contains angle brackets or pipes —
+  `a < b | c > d`, `<div>`, `|col|col|` — goes out byte for byte.
+- Only the active generation's tokens are escaped. `<|eot_id|>` is reserved on
+  Llama 3.x and ordinary text on Llama 4, so it is escaped in the first and left
+  alone in the second.
+- Mistral is treated the same way, for `<s>`, `[INST]` and `[/INST]`, as is a
+  `meta.llama2-...` id for its own markers.
+- Claude, Nova and Titan send your text as a structured field rather than
+  interpolating it into a template, and are untouched.
+
+#### Titan has no system prompt
+
+`WithSystemPrompt` works on every Bedrock family, but on Titan it is weaker than
+it looks, and the difference is worth stating rather than discovering.
+
+AWS documents the entire Titan Text request body as
+
+```json
+{"inputText": "…",
+ "textGenerationConfig": {"temperature": 0.7, "topP": 0.9, "maxTokenCount": 4096, "stopSequences": []}}
+```
+
+There is no `system` field in it, no `instructions` field, and no role structure
+of any kind — AWS's own guidance is to write roles as plain text inside
+`inputText` (`"inputText": "User: {{prompt}}\nBot:"`). Titan Text is not served
+by the Converse API either, so there is no second dialect with a system block to
+borrow. Lingo therefore does the only thing the API allows: it concatenates the
+system prompt, a blank line, and your prompt.
+
+```go
+lingo.NewBedrockTitanTextPremier().WithSystemPrompt("be terse")
+// inputText: "be terse\n\nhello"
+```
+
+That blank line is the whole boundary. Titan has no control tokens for caller
+text to forge — which is why the escaping described above has no Titan
+equivalent — but it also has nothing that marks the first paragraph as
+outranking the second, so prompt text contradicting the system text is arguing
+on equal terms. **If you need an instruction the user's text cannot restate,
+use a family whose API models one:** Claude, Nova, Llama and Mistral all send
+the system prompt as a field or a templated role of its own.
+
+#### Token counts on InvokeModel
+
+Two Bedrock families do not report their own usage in full. Mistral's
+`InvokeModel` response body is documented as
+`{"outputs":[{"text","stop_reason"}]}` and carries no counts at all; Titan
+reports the completion count in `results[].tokenCount` and the prompt count
+beside it in `inputTextTokenCount`. Bedrock also reports what it billed on every
+`InvokeModel` response as the `X-Amzn-Bedrock-Input-Token-Count` and
+`X-Amzn-Bedrock-Output-Token-Count` headers, which lingo reads.
+
+The body wins wherever it reports; the headers only fill what is missing. When
+they do, `response.Metadata["usage_source"]` says so — `"response_headers"` when
+every count came from them, as on Mistral, and `"body+response_headers"` when
+they filled a gap the body left, as on a Titan response without an
+`inputTextTokenCount`. Neither header is documented by AWS, so a response
+without them is a normal state: the counts that did not arrive stay zero rather
+than becoming a number nobody reported. Claude, Llama and Nova report complete
+counts of their own and are never overridden by a header.
+
+Titan's `results` and Mistral's `outputs` are arrays, and lingo returns the
+first element of each as the answer. Neither request body has a `numResults`
+field for lingo or a caller to set, and AWS documents Titan's `results` as "an
+array of one item", so one is what a lingo request produces. If a response ever
+carries more, nothing billed is lost — Titan's completion count sums every
+result, and Mistral's counts come from the response headers, which cover the
+whole call — and the array length is recorded in `Metadata["results"]` or
+`Metadata["outputs"]` so the extra completions are a visible drop rather than a
+silent one.
 
 ### Azure OpenAI
 
@@ -534,6 +701,18 @@ config := &lingo.OpenAIConfig{
     },
 }
 ```
+
+`MaxRetries` is the whole retry budget for the statuses lingo retries -- 429,
+503 and Anthropic's 529. Several provider SDKs retry those on their own, so
+lingo turns that off for exactly those statuses: the count above is the number
+of upstream requests you get, and the backoff above is the delay between them.
+Everything those SDKs retry that lingo does not -- connection failures, 408,
+409, 500, 502, 504 -- is still left to them.
+
+If the request timeout expires while a retry is waiting, the error names both:
+`context deadline exceeded after ... 429 Too Many Requests`. It satisfies
+`errors.Is(err, context.DeadlineExceeded)` and still unwraps to the provider's
+own error underneath.
 
 ## Prompt Caching
 
@@ -1541,10 +1720,21 @@ if gateway.IsRegistered(lingo.ProviderAnthropic) {
 }
 ```
 
-What a health check costs varies by provider. OpenAI, Anthropic and Bedrock
-generate a few tokens against a small model. xAI, DeepSeek, OpenRouter, Azure
-and OpenAI-compatible endpoints list models instead, which proves credentials
-and connectivity without spending tokens; Cohere validates the key directly.
+What a health check costs varies by provider. OpenAI and Anthropic generate a
+few tokens against a small model. xAI, DeepSeek, OpenRouter, Azure and
+OpenAI-compatible endpoints list models instead, which proves credentials and
+connectivity without spending tokens; Cohere validates the key directly; Ollama
+asks for its tag list.
+
+Bedrock generates nothing by default. Its runtime API has no models endpoint,
+so the probe calls `ListAsyncInvokes` — an operation that names no model, sends
+no body and bills nothing — which proves credentials, region and endpoint
+without depending on access to whichever model the check happened to pick. (It
+used to invoke `amazon.titan-text-lite-v1`; Titan Text is past end-of-life on
+Bedrock, so on an account without Titan access the check failed for a reason
+that had nothing to do with health.) Set `BedrockConfig.HealthCheckModel` when
+you would rather prove a specific model is servable — it is generated against
+for five tokens, through the same request path a real call uses.
 
 ## Response Structure
 

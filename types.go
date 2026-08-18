@@ -45,7 +45,9 @@ type ProviderConfig interface {
 
 // RateLimitConfig contains configuration for rate limit handling
 type RateLimitConfig struct {
-	// MaxRetries is the maximum number of retry attempts (default: 3)
+	// MaxRetries is the maximum number of retry attempts (default: 3).
+	// Zero means unset and selects that default, so retries are turned off
+	// with a negative value: one attempt is always made either way.
 	MaxRetries int
 	// InitialBackoff is the initial backoff duration (default: 1s)
 	InitialBackoff time.Duration
