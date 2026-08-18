@@ -150,6 +150,23 @@ func (g *LLMGateway) Health(ctx context.Context, provider ProviderType) error {
 	return client.Health(ctx)
 }
 
+// CacheManager returns the provider's cache resource manager, and false when
+// the provider is not registered or does not model caches as resources. Only
+// ProviderGoogle does; asking any other provider is not an error, it simply
+// reports false.
+func (g *LLMGateway) CacheManager(provider ProviderType) (PromptCacheManager, bool) {
+	g.mu.RLock()
+	client, exists := g.providers[provider]
+	g.mu.RUnlock()
+
+	if !exists {
+		return nil, false
+	}
+
+	m, ok := client.(PromptCacheManager)
+	return m, ok
+}
+
 // Close closes all registered providers
 func (g *LLMGateway) Close() error {
 	g.mu.Lock()

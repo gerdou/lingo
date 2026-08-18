@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -56,6 +57,92 @@ type ollamaOptions struct {
 	numCtx        int     // Context window size
 	repeatPenalty float64 // Repetition penalty
 	seed          int     // Random seed for reproducibility
+	thinking      ThinkingOptions
+}
+
+// ThinkingOptions returns the model's thinking configuration. Every Ollama model
+// embeds ollamaOptions, so this one declaration makes them all satisfy
+// ThinkingModel -- including Llama and Mistral, which carry the configuration
+// and send none of it. The wire gate is thinkingDimensions, not the accessor.
+//
+// Ollama has no thinking setters of its own, so this is the only surface: there
+// is nothing here for it to disagree with.
+func (o *ollamaOptions) ThinkingOptions() *ThinkingOptions { return &o.thinking }
+
+// thinkingDimensions answers for the models with no thinking capability, which
+// is most of the named catalogue. The thinking-capable types override it.
+//
+// The conservative default is load-bearing rather than tidy: Ollama's server
+// answers `think` on a model without the thinking capability with HTTP 400,
+// "%q does not support thinking" (server/routes.go), so a dimension claimed too
+// widely turns lingo's never-error promise into a failed request.
+func (o *ollamaOptions) thinkingDimensions() ThinkingDimension { return 0 }
+
+// ollamaThinkingDims is what a thinking-capable Ollama model honours: `think`
+// takes a bool or a level, and the trace comes back on the message. No token
+// count is reported -- thinking tokens are folded into eval_count -- so
+// ThinkingCanReportTokens is deliberately absent.
+const ollamaThinkingDims = ThinkingCanToggle | ThinkingCanSetEffort | ThinkingCanReportTrace
+
+// ollamaThinkingEfforts is the ladder Ollama accepts. It is exactly three rungs:
+// api.ThinkValue rejects any other string, so "minimal" clamps up to low and
+// "xhigh"/"max" clamp down to high rather than being forwarded to a 400.
+var ollamaThinkingEfforts = []ThinkingEffort{
+	ThinkingEffortLow,
+	ThinkingEffortMedium,
+	ThinkingEffortHigh,
+}
+
+// ollamaThinkingModels are the model families lingo believes carry Ollama's
+// thinking capability. It is deliberately a list of families rather than exact
+// tags, so a size or quantization suffix ("qwen3:8b", "deepseek-r1:32b")
+// resolves the same as the bare name.
+//
+// A family name matches only up to Ollama's tag separator, never into a longer
+// name (see ollamaThinkingDimensions). "qwen3" is a thinking model and
+// "qwen3-coder", "qwen3-embedding" and "qwen3-reranker" are three separate
+// models that are not, so a plain prefix test would put `think` on a request
+// Ollama answers with a 400.
+//
+// The list can only ever be incomplete -- NewOllamaModel takes any tag from a
+// local registry, including private and renamed ones -- and an unlisted tag is
+// treated as unable to think, because asking a model that cannot think to think
+// is the one request Ollama answers with an error rather than by ignoring it.
+// The same conservatism covers a thinking model that renames rather than tags a
+// variant, such as deepseek-v3.1-terminus: it is an unlisted tag, so thinking
+// control on it is a silent no-op until the family is added here. The complete
+// answer is Ollama's own discovery path, POST /api/show and its "thinking"
+// capability, which costs a round trip per model and is left as a follow-up.
+var ollamaThinkingModels = []string{
+	"deepseek-r1",
+	"deepseek-v3.1",
+	"qwen3",
+	"qwq",
+	"gpt-oss",
+	"magistral",
+	"phi4-reasoning",
+	"exaone-deep",
+	"smollm3",
+	"cogito",
+}
+
+// ollamaThinkingDimensions resolves a raw model tag to its thinking dimensions.
+//
+// An Ollama tag is "<name>:<variant>", and the match respects that boundary: a
+// listed family matches the bare name and every variant of it, and nothing else.
+// A plain prefix test would let "qwen3" capture qwen3-coder, qwen3-embedding and
+// qwen3-reranker -- three models with no thinking capability, whose server
+// answers a truthy `think` with HTTP 400 "does not support thinking" rather than
+// ignoring it (ollama/ollama server/routes.go, ChatHandler). Erring the other
+// way costs only a silent no-op, so the boundary is required, not an
+// optimisation.
+func ollamaThinkingDimensions(tag string) ThinkingDimension {
+	for _, family := range ollamaThinkingModels {
+		if tag == family || strings.HasPrefix(tag, family+":") {
+			return ollamaThinkingDims
+		}
+	}
+	return 0
 }
 
 // ============================================================================
@@ -69,6 +156,12 @@ type OllamaModel struct{ ollamaOptions }
 func (m *OllamaModel) ModelName() string      { return m.modelName }
 func (m *OllamaModel) Provider() ProviderType { return ProviderOllama }
 func (m *OllamaModel) SystemPrompt() string   { return m.systemPrompt }
+
+// thinkingDimensions resolves the local tag, so a thinking model pulled by name
+// answers the same as the named type would.
+func (m *OllamaModel) thinkingDimensions() ThinkingDimension {
+	return ollamaThinkingDimensions(m.modelName)
+}
 
 func (m *OllamaModel) WithMaxTokens(n int) *OllamaModel         { m.maxTokens = n; return m }
 func (m *OllamaModel) WithTemperature(t float64) *OllamaModel   { m.temperature = t; return m }
@@ -347,6 +440,8 @@ func (m *Qwen3) ModelName() string      { return "qwen3" }
 func (m *Qwen3) Provider() ProviderType { return ProviderOllama }
 func (m *Qwen3) SystemPrompt() string   { return m.systemPrompt }
 
+func (m *Qwen3) thinkingDimensions() ThinkingDimension { return ollamaThinkingDims }
+
 func (m *Qwen3) WithMaxTokens(n int) *Qwen3         { m.maxTokens = n; return m }
 func (m *Qwen3) WithTemperature(t float64) *Qwen3   { m.temperature = t; return m }
 func (m *Qwen3) WithTopP(p float64) *Qwen3          { m.topP = p; return m }
@@ -389,6 +484,8 @@ func (m *DeepSeekR1) ModelName() string      { return "deepseek-r1" }
 func (m *DeepSeekR1) Provider() ProviderType { return ProviderOllama }
 func (m *DeepSeekR1) SystemPrompt() string   { return m.systemPrompt }
 
+func (m *DeepSeekR1) thinkingDimensions() ThinkingDimension { return ollamaThinkingDims }
+
 func (m *DeepSeekR1) WithMaxTokens(n int) *DeepSeekR1         { m.maxTokens = n; return m }
 func (m *DeepSeekR1) WithTemperature(t float64) *DeepSeekR1   { m.temperature = t; return m }
 func (m *DeepSeekR1) WithTopP(p float64) *DeepSeekR1          { m.topP = p; return m }
@@ -422,11 +519,31 @@ type ollamaChatRequest struct {
 	Messages []ollamaChatMessage `json:"messages"`
 	Stream   bool                `json:"stream"`
 	Options  *ollamaModelOptions `json:"options,omitempty"`
+	// Think is Ollama's thinking switch. It is polymorphic on the wire -- the
+	// bare JSON value true, false, or one of the level strings "low", "medium",
+	// "high", never an object -- so it is typed as any and marshalled as
+	// whatever it holds. Ollama's own client models the same union as a wrapper
+	// with a custom marshaller; an untyped field keeps that type out of lingo's
+	// signatures and out of its dependencies.
+	//
+	// It is a sibling of model and messages, not one of Options: Ollama's
+	// options object has no think field, common advice to put it there
+	// notwithstanding.
+	//
+	// nil leaves the field out, which is what every request lingo sent before
+	// thinking control existed does. That is not the same as false: unset lets a
+	// thinking-capable model reason as it does by default, while false asks it
+	// not to.
+	Think any `json:"think,omitempty"`
 }
 
 type ollamaChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	// Thinking is the reasoning trace, returned beside the content rather than
+	// inside it. It is response-only: lingo never sets it on an outbound
+	// message, and omitempty keeps request bodies byte-identical.
+	Thinking string `json:"thinking,omitempty"`
 }
 
 type ollamaModelOptions struct {
@@ -585,6 +702,25 @@ func (c *ollamaClient) Generate(ctx context.Context, model Model, prompt string)
 		reqBody.Options = modelOpts
 	}
 
+	// Thinking is opt-in and applied once, from a plan built against the model's
+	// own capabilities. A model whose ThinkingOptions were never touched produces
+	// a zero plan and leaves Think nil, which is the field omitted -- so a
+	// thinking-capable model keeps reasoning by default, as Ollama's server
+	// arranges when the field is absent.
+	//
+	// A level implies enabled, so it is sent instead of the bare true, never
+	// beside it.
+	plan := planThinking(modelThinkingOptions(model), ModelThinkingDimensions(model),
+		budgetRange{}, ollamaThinkingEfforts...)
+	switch {
+	case plan.disable:
+		reqBody.Think = false
+	case plan.effort != "":
+		reqBody.Think = string(plan.effort)
+	case plan.enable:
+		reqBody.Think = true
+	}
+
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -593,6 +729,8 @@ func (c *ollamaClient) Generate(ctx context.Context, model Model, prompt string)
 	c.logger.Debug().
 		Str("model", model.ModelName()).
 		Str("url", c.baseURL+"/api/chat").
+		Bool("has_thinking", reqBody.Think != nil && reqBody.Think != false).
+		Str("thinking_translation", plan.translation()).
 		Msg("Making Ollama API request")
 
 	// Make request with rate limit handling
@@ -628,9 +766,14 @@ func (c *ollamaClient) Generate(ctx context.Context, model Model, prompt string)
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Build response
+	// Build response.
+	//
+	// TokenUsage.ThinkingTokens stays zero: Ollama reports prompt_eval_count and
+	// eval_count only, and thinking tokens are folded into eval_count with no
+	// breakdown to read.
 	response := &GenerationResponse{
 		Text:         ollamaResp.Message.Content,
+		Thinking:     ollamaResp.Message.Thinking,
 		Model:        ollamaResp.Model,
 		FinishReason: ollamaResp.DoneReason,
 		Usage: TokenUsage{
@@ -644,6 +787,12 @@ func (c *ollamaClient) Generate(ctx context.Context, model Model, prompt string)
 			"total_duration": fmt.Sprintf("%d", ollamaResp.TotalDuration),
 			"load_duration":  fmt.Sprintf("%d", ollamaResp.LoadDuration),
 		},
+	}
+
+	// Whatever lingo had to translate or drop to fit the caller's request onto
+	// this model's dialect, so a silent adaptation is never invisible.
+	if s := plan.translation(); s != "" {
+		response.Metadata["thinking_translation"] = s
 	}
 
 	c.logger.Debug().

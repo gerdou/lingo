@@ -68,11 +68,9 @@ type cohereOptions struct {
 	stopSequences []string
 	safetyMode    string
 	// Thinking is on by default on models that support it, so lingo sends the
-	// field only once a setter has asked for a change
-	thinkingSet     bool
-	thinkingEnabled bool
-	thinkingBudget  int
-	reasoning       bool
+	// field only once a setter, or the portable surface, has asked for a change
+	thinking  ThinkingOptions
+	reasoning bool
 }
 
 // SystemPrompt satisfies Model for every type embedding cohereOptions.
@@ -80,6 +78,96 @@ func (o *cohereOptions) SystemPrompt() string { return o.systemPrompt }
 
 // cohereOpts exposes the embedded option set to the client.
 func (o *cohereOptions) cohereOpts() *cohereOptions { return o }
+
+// ThinkingOptions returns the model's thinking configuration. Every Cohere
+// model embeds cohereOptions, so this one declaration makes them all satisfy
+// ThinkingModel -- including the six Command types that take no thinking
+// instruction, which carry the configuration and send none of it. The wire gate
+// is thinkingDimensions, not the accessor.
+//
+// It is the single storage behind WithThinkingDisabled and WithThinkingBudget,
+// so the portable surface and the per-model setters can never disagree about
+// what the request will carry.
+func (o *cohereOptions) ThinkingOptions() *ThinkingOptions { return &o.thinking }
+
+// thinkingDimensions answers for the Command models whose API takes no thinking
+// object: Command A, A Vision, A Translate, R7B, R and R+ all reject one. The
+// reasoning models override it per type.
+func (o *cohereOptions) thinkingDimensions() ThinkingDimension { return 0 }
+
+// cohereThinkingDims is what Cohere's reasoning models honour. There is no
+// effort ladder -- an effort is projected onto a token budget -- and no thinking
+// token count comes back, so ThinkingCanSetEffort and ThinkingCanReportTokens
+// are deliberately absent.
+const cohereThinkingDims = ThinkingCanToggle | ThinkingCanSetBudget | ThinkingCanReportTrace
+
+// cohereNonThinkingModels are the model id prefixes lingo knows reject a
+// thinking object. Anything else -- a model newer than this package, or a
+// fine-tune -- is taken at its word, which is the whole point of addressing a
+// model by raw id.
+var cohereNonThinkingModels = []string{
+	"command-a-03",
+	"command-a-vision",
+	"command-a-translate",
+	"command-r", // covers command-r, command-r-plus and command-r7b
+	"command-light",
+	"command-nightly",
+}
+
+// cohereThinkingDimensions resolves a raw model id to its thinking dimensions.
+func cohereThinkingDimensions(modelID string) ThinkingDimension {
+	for _, prefix := range cohereNonThinkingModels {
+		if strings.HasPrefix(modelID, prefix) {
+			return 0
+		}
+	}
+	return cohereThinkingDims
+}
+
+// The two thinking setters used to write three fields in one tuple assignment.
+// They now write the shared ThinkingOptions and pin what they set, so a value a
+// caller named on a Cohere type reaches the wire exactly as it did before the
+// portable surface existed.
+
+// setThinkingDisabled backs the per-model WithThinkingDisabled setters.
+func (o *cohereOptions) setThinkingDisabled() {
+	o.thinking.Disable().pin(ThinkingCanToggle)
+	o.reasoning = false
+}
+
+// setThinkingBudget backs the per-model WithThinkingBudget setters.
+//
+// It enables thinking as well as capping it: naming a budget has always been
+// the only way to turn Cohere thinking on, and a non-positive budget still
+// enables it with no ceiling, exactly as the tuple assignment it replaces did.
+func (o *cohereOptions) setThinkingBudget(tokens int) {
+	o.thinking.Enable().WithBudget(tokens).pin(ThinkingCanToggle | ThinkingCanSetBudget)
+	o.reasoning = true
+}
+
+// cohereDefaultThinkingCeiling bounds a derived thinking budget on a model whose
+// max_tokens the caller left unset. It is the default every Cohere constructor
+// but Command A Reasoning ships with.
+const cohereDefaultThinkingCeiling = 4096
+
+// cohereThinkingBudgetRange is the window lingo clamps an unpinned budget into,
+// and the range an effort level is projected onto.
+//
+// The floor is the SDK's: token_budget "must be set to a positive integer"
+// (cohere-go/v2 v2.18.0 v_2.go:6870). The ceiling is lingo's own -- Cohere
+// publishes none -- and is the model's own max_tokens, because asking a model to
+// spend more tokens thinking than the whole reply is allowed cannot be what the
+// caller meant.
+//
+// It bounds only what lingo derives. A budget a per-model setter pinned is sent
+// exactly as given, including one this window would have rejected.
+func cohereThinkingBudgetRange(o *cohereOptions) budgetRange {
+	ceiling := o.maxTokens
+	if ceiling <= 0 {
+		ceiling = cohereDefaultThinkingCeiling
+	}
+	return budgetRange{min: 1, max: ceiling}
+}
 
 // cohereModel is implemented by every model routed through the Cohere client.
 type cohereModel interface {
@@ -108,6 +196,9 @@ func (m *CommandAPlus) ModelName() string {
 	return resolveCohereModelName(&m.cohereOptions, "command-a-plus-05-2026")
 }
 func (m *CommandAPlus) Provider() ProviderType { return ProviderCohere }
+func (m *CommandAPlus) thinkingDimensions() ThinkingDimension {
+	return cohereThinkingDims
+}
 
 func (m *CommandAPlus) WithVersion(v string) *CommandAPlus      { m.modelVersion = v; return m }
 func (m *CommandAPlus) WithMaxTokens(n int) *CommandAPlus       { m.maxTokens = n; return m }
@@ -123,15 +214,11 @@ func (m *CommandAPlus) WithStopSequences(s []string) *CommandAPlus {
 func (m *CommandAPlus) WithSafetyMode(mode string) *CommandAPlus { m.safetyMode = mode; return m }
 
 // WithThinkingDisabled turns reasoning off, trading depth for latency
-func (m *CommandAPlus) WithThinkingDisabled() *CommandAPlus {
-	m.thinkingSet, m.thinkingEnabled, m.reasoning = true, false, false
-	return m
-}
+func (m *CommandAPlus) WithThinkingDisabled() *CommandAPlus { m.setThinkingDisabled(); return m }
 
 // WithThinkingBudget caps the tokens spent on reasoning and enables thinking
 func (m *CommandAPlus) WithThinkingBudget(tokens int) *CommandAPlus {
-	m.thinkingSet, m.thinkingEnabled, m.reasoning = true, true, true
-	m.thinkingBudget = tokens
+	m.setThinkingBudget(tokens)
 	return m
 }
 
@@ -172,6 +259,9 @@ func (m *CommandAReasoning) ModelName() string {
 	return resolveCohereModelName(&m.cohereOptions, "command-a-reasoning-08-2025")
 }
 func (m *CommandAReasoning) Provider() ProviderType { return ProviderCohere }
+func (m *CommandAReasoning) thinkingDimensions() ThinkingDimension {
+	return cohereThinkingDims
+}
 
 func (m *CommandAReasoning) WithVersion(v string) *CommandAReasoning { m.modelVersion = v; return m }
 func (m *CommandAReasoning) WithMaxTokens(n int) *CommandAReasoning  { m.maxTokens = n; return m }
@@ -197,14 +287,13 @@ func (m *CommandAReasoning) WithSafetyMode(mode string) *CommandAReasoning {
 
 // WithThinkingDisabled turns reasoning off, trading depth for latency
 func (m *CommandAReasoning) WithThinkingDisabled() *CommandAReasoning {
-	m.thinkingSet, m.thinkingEnabled, m.reasoning = true, false, false
+	m.setThinkingDisabled()
 	return m
 }
 
 // WithThinkingBudget caps the tokens spent on reasoning and enables thinking
 func (m *CommandAReasoning) WithThinkingBudget(tokens int) *CommandAReasoning {
-	m.thinkingSet, m.thinkingEnabled, m.reasoning = true, true, true
-	m.thinkingBudget = tokens
+	m.setThinkingBudget(tokens)
 	return m
 }
 
@@ -360,6 +449,12 @@ type CohereModel struct {
 func (m *CohereModel) ModelName() string      { return m.modelID }
 func (m *CohereModel) Provider() ProviderType { return ProviderCohere }
 
+// thinkingDimensions resolves the raw model id, so a Command R addressed by id
+// answers the same as the named type would.
+func (m *CohereModel) thinkingDimensions() ThinkingDimension {
+	return cohereThinkingDimensions(m.modelID)
+}
+
 func (m *CohereModel) WithMaxTokens(n int) *CohereModel          { m.maxTokens = n; return m }
 func (m *CohereModel) WithTemperature(t float64) *CohereModel    { m.temperature = t; return m }
 func (m *CohereModel) WithTopP(p float64) *CohereModel           { m.topP = p; return m }
@@ -368,13 +463,9 @@ func (m *CohereModel) WithSeed(s int) *CohereModel               { m.seed = s; r
 func (m *CohereModel) WithSystemPrompt(s string) *CohereModel    { m.systemPrompt = s; return m }
 func (m *CohereModel) WithStopSequences(s []string) *CohereModel { m.stopSequences = s; return m }
 func (m *CohereModel) WithSafetyMode(mode string) *CohereModel   { m.safetyMode = mode; return m }
-func (m *CohereModel) WithThinkingDisabled() *CohereModel {
-	m.thinkingSet, m.thinkingEnabled, m.reasoning = true, false, false
-	return m
-}
+func (m *CohereModel) WithThinkingDisabled() *CohereModel        { m.setThinkingDisabled(); return m }
 func (m *CohereModel) WithThinkingBudget(tokens int) *CohereModel {
-	m.thinkingSet, m.thinkingEnabled, m.reasoning = true, true, true
-	m.thinkingBudget = tokens
+	m.setThinkingBudget(tokens)
 	return m
 }
 
@@ -488,20 +579,44 @@ func (c *cohereClient) Generate(ctx context.Context, model Model, prompt string)
 		mode := cohere.V2ChatRequestSafetyMode(opts.safetyMode)
 		req.SafetyMode = &mode
 	}
-	if opts.thinkingSet {
-		thinking := &cohere.Thinking{Type: cohere.ThinkingTypeDisabled}
-		if opts.thinkingEnabled {
-			thinking.Type = cohere.ThinkingTypeEnabled
-			if opts.thinkingBudget > 0 {
-				thinking.TokenBudget = &opts.thinkingBudget
-			}
+	// Thinking is opt-in and applied once, from a plan built outside the option
+	// block above. A model whose ThinkingOptions were never touched produces a
+	// zero plan and leaves req.Thinking nil, which is the field omitted.
+	//
+	// A dimension a per-model setter pinned is always on the wire, whatever the
+	// model id says: the caller reached for a Cohere-specific knob on a
+	// Cohere-specific type -- including CohereModel, whose whole job is to send
+	// what it was told -- so lingo forwards it and lets the API answer, exactly
+	// as it did before the portable surface existed.
+	dims := ModelThinkingDimensions(model)
+	to := modelThinkingOptions(model)
+	if to != nil {
+		dims |= to.pinned
+	}
+	plan := planThinking(to, dims, cohereThinkingBudgetRange(opts))
+	switch {
+	case plan.disable:
+		req.Thinking = &cohere.Thinking{Type: cohere.ThinkingTypeDisabled}
+	case plan.enable:
+		thinking := &cohere.Thinking{Type: cohere.ThinkingTypeEnabled}
+		if plan.budget > 0 {
+			budget := plan.budget
+			thinking.TokenBudget = &budget
 		}
 		req.Thinking = thinking
 	}
 
+	// The metadata flag reports what the request actually asked for, so it
+	// cannot contradict the thinking object beside it. A disable is the last
+	// word: command-a-reasoning is built with the flag on, and a request that
+	// carries thinking={"type":"disabled"} is not a reasoning request whichever
+	// surface switched it off.
+	reasoning := (opts.reasoning || plan.enable) && !plan.disable
+
 	c.logger.Debug().
 		Str("model", model.ModelName()).
-		Bool("is_reasoning_model", opts.reasoning).
+		Bool("is_reasoning_model", reasoning).
+		Str("thinking_translation", plan.translation()).
 		Msg("Making Cohere API request")
 
 	// Make request with rate limit handling
@@ -540,20 +655,34 @@ func (c *cohereClient) Generate(ctx context.Context, model Model, prompt string)
 
 	response := &GenerationResponse{
 		Text:         text.String(),
+		Thinking:     thinking.String(),
 		Model:        model.ModelName(),
 		FinishReason: string(resp.FinishReason),
 		Usage:        cohereUsage(resp.Usage),
 		Metadata: map[string]string{
 			"provider":           "cohere",
 			"model":              model.ModelName(),
-			"is_reasoning_model": fmt.Sprintf("%t", opts.reasoning),
+			"is_reasoning_model": fmt.Sprintf("%t", reasoning),
 		},
 	}
 	if resp.Id != "" {
 		response.Metadata["response_id"] = resp.Id
 	}
+
+	// The trace now has a typed home in GenerationResponse.Thinking; the
+	// metadata key it used to live under is kept for one release so existing
+	// readers keep working.
+	//
+	// Deprecated: read GenerationResponse.Thinking instead of
+	// Metadata["reasoning_content"].
 	if thinking.Len() > 0 {
 		response.Metadata["reasoning_content"] = thinking.String()
+	}
+
+	// Whatever lingo had to translate or drop to fit the caller's request onto
+	// this model's dialect, so a silent adaptation is never invisible.
+	if s := plan.translation(); s != "" {
+		response.Metadata["thinking_translation"] = s
 	}
 	if resp.Message.ToolPlan != nil && *resp.Message.ToolPlan != "" {
 		response.Metadata["tool_plan"] = *resp.Message.ToolPlan
@@ -561,34 +690,53 @@ func (c *cohereClient) Generate(ctx context.Context, model Model, prompt string)
 
 	c.logger.Debug().
 		Str("model", model.ModelName()).
-		Bool("is_reasoning_model", opts.reasoning).
+		Bool("is_reasoning_model", reasoning).
 		Int("prompt_tokens", response.Usage.PromptTokens).
 		Int("completion_tokens", response.Usage.CompletionTokens).
 		Int("total_tokens", response.Usage.TotalTokens).
+		Int("cache_read_tokens", response.Usage.CacheReadTokens).
 		Msg("Cohere generation completed")
 
 	return response, nil
 }
 
-// cohereUsage converts Cohere's float token counts into TokenUsage
+// cohereUsage converts Cohere's float token counts into TokenUsage.
+//
+// TokenUsage.ThinkingTokens stays zero here, and that is not an omission:
+// cohere-go/v2 v2.18.0 models no thinking counter anywhere in the usage tree
+// (Usage v_2.go:7715, UsageTokens v_2.go:7967, UsageBilledUnits v_2.go:7833),
+// so thinking tokens are folded into output_tokens and cannot be separated.
+//
+// Cohere caches on its own -- there is no breakpoint to place -- and reports
+// only the hit count, so there is never a cache write to report. It documents
+// cached_tokens as "the number of prompt tokens that hit the inference cache"
+// without ever relating it to the input count; lingo reads it as a subset of
+// the prompt, which is how every other implicit-caching provider reports.
 func cohereUsage(usage *cohere.Usage) TokenUsage {
-	if usage == nil || usage.Tokens == nil {
+	if usage == nil {
 		return TokenUsage{}
 	}
 
 	var in, out int
-	if usage.Tokens.InputTokens != nil {
-		in = int(*usage.Tokens.InputTokens)
+	if usage.Tokens != nil {
+		if usage.Tokens.InputTokens != nil {
+			in = int(*usage.Tokens.InputTokens)
+		}
+		if usage.Tokens.OutputTokens != nil {
+			out = int(*usage.Tokens.OutputTokens)
+		}
 	}
-	if usage.Tokens.OutputTokens != nil {
-		out = int(*usage.Tokens.OutputTokens)
+
+	var cached int
+	if usage.CachedTokens != nil {
+		cached = int(*usage.CachedTokens)
 	}
 
 	return TokenUsage{
 		PromptTokens:     in,
 		CompletionTokens: out,
 		TotalTokens:      in + out,
-	}
+	}.withCache(cached, 0, true)
 }
 
 // Health checks the health of the Cohere client

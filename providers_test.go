@@ -212,6 +212,55 @@ func TestAzureDeploymentRoutingAndAuth(t *testing.T) {
 	}
 }
 
+// TestAzureAPIVersionRouting pins the wire shape of all three api-version
+// shapes. The default and dated rows are the byte-identical-by-default
+// guarantee: no dated api-version models prompt_cache_key, so the field must
+// never leave the process on those routes, however the model is configured.
+func TestAzureAPIVersionRouting(t *testing.T) {
+	keyed := func() *AzureOpenAIModel {
+		return Cached(NewAzureOpenAIModel("my-deploy"), WithCacheKey("tenant:acme"))
+	}
+
+	for _, tc := range []struct {
+		name       string
+		apiVersion string
+		path       string
+		query      string
+		cacheKey   string
+	}{
+		{"default", "", "/openai/deployments/my-deploy/chat/completions", "api-version=2024-10-21", ""},
+		{"dated", AzureAPIVersionDefault, "/openai/deployments/my-deploy/chat/completions", "api-version=2024-10-21", ""},
+		{"older dated", "2023-05-15", "/openai/deployments/my-deploy/chat/completions", "api-version=2023-05-15", ""},
+		{"v1", AzureAPIVersionV1, "/openai/v1/chat/completions", "", "tenant:acme"},
+		{"v1 preview", AzureAPIVersionV1Preview, "/openai/v1/chat/completions", "api-version=preview", "tenant:acme"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var c capture
+			srv := oaiStub(t, &c)
+			defer srv.Close()
+
+			generate(t, &AzureOpenAIConfig{Endpoint: srv.URL, APIKey: "azkey", APIVersion: tc.apiVersion}, keyed())
+
+			if c.path != tc.path {
+				t.Errorf("path = %q, want %q", c.path, tc.path)
+			}
+			if c.query != tc.query {
+				t.Errorf("query = %q, want %q", c.query, tc.query)
+			}
+			if c.headers.Get("Api-Key") != "azkey" {
+				t.Errorf("azure auth header = %v", c.headers)
+			}
+			if c.body["model"] != "my-deploy" {
+				t.Errorf("model = %v (the deployment name routes on both surfaces)", c.body["model"])
+			}
+			got, _ := c.body["prompt_cache_key"].(string)
+			if got != tc.cacheKey {
+				t.Errorf("prompt_cache_key = %q, want %q", got, tc.cacheKey)
+			}
+		})
+	}
+}
+
 func TestAzureRejectsMissingCredentials(t *testing.T) {
 	if _, err := New([]ProviderConfig{&AzureOpenAIConfig{Endpoint: "https://x.test"}}); err == nil {
 		t.Error("expected an error when neither APIKey nor TokenCredential is set")

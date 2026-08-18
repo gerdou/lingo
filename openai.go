@@ -3,6 +3,7 @@ package lingo
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/openai/openai-go/v3"
@@ -58,14 +59,160 @@ type openAIStandardOptions struct {
 	temperature  float64
 	topP         float64
 	systemPrompt string
+	cache        CacheOptions
 }
+
+// CacheOptions returns the model's prompt caching configuration. Every standard
+// OpenAI model embeds openAIStandardOptions, so this one declaration makes them
+// all satisfy CacheableModel.
+func (o *openAIStandardOptions) CacheOptions() *CacheOptions { return &o.cache }
+
+// thinkingDimensions answers for the standard models, whose API has no
+// reasoning field: gpt-4o and its siblings reject reasoning_effort outright.
+// They deliberately do NOT get a ThinkingOptions accessor -- the sibling option
+// structs are the gate, exactly as they are for the reasoning-only parameters.
+func (o *openAIStandardOptions) thinkingDimensions() ThinkingDimension { return 0 }
 
 // openAIReasoningOptions contains options for reasoning models (o1, o3, o4, GPT-5)
 type openAIReasoningOptions struct {
 	modelVersion        string // Optional: override model name with specific version
 	maxCompletionTokens int
-	reasoningEffort     string // "low", "medium", "high"
+	thinking            ThinkingOptions
 	systemPrompt        string
+	cache               CacheOptions
+}
+
+// CacheOptions returns the model's prompt caching configuration. The reasoning
+// options are a sibling of openAIStandardOptions rather than an extension of
+// it, so the accessor has to be declared on both.
+func (o *openAIReasoningOptions) CacheOptions() *CacheOptions { return &o.cache }
+
+// ThinkingOptions returns the model's thinking configuration. Every OpenAI
+// reasoning model embeds openAIReasoningOptions, so this one declaration makes
+// them all satisfy ThinkingModel -- and, deliberately, only them.
+//
+// It is the single storage behind WithReasoningEffort, so the portable surface
+// and the per-model setter can never disagree about what the request carries.
+func (o *openAIReasoningOptions) ThinkingOptions() *ThinkingOptions { return &o.thinking }
+
+// setReasoningEffort backs the per-model WithReasoningEffort setters.
+//
+// It writes the level and pins it, which is what keeps a caller's own string on
+// the wire byte for byte: pinned means never clamped to the model's ladder,
+// never translated, never dropped for being a value this library has not heard
+// of. The setter takes a bare string and has always forwarded whatever it was
+// given, including "none" on a model with no off switch, and that is preserved.
+//
+// It leaves the mode alone, which is where it parts company with the portable
+// ThinkingOptions.WithEffort. reasoning_effort is the only thinking field this
+// dialect has, so a mode of its own would have nowhere to go, and letting
+// WithReasoningEffort("none") read as ThinkingModeOff would send the portable
+// surface's off switch instead of the caller's literal value.
+func (o *openAIReasoningOptions) setReasoningEffort(e string) {
+	o.thinking.effort = ThinkingEffort(e)
+	o.thinking.pin(ThinkingCanSetEffort)
+}
+
+// openAISeededEffort is the pinned reasoning_effort several OpenAI constructors
+// have always shipped -- "medium" for most, "high" for the pro tier, "low" for
+// GPT-5.6 Luna. Those defaults predate the portable thinking surface, so they
+// are seeded exactly as a per-model setter would have set them: pinned, and
+// therefore on the wire unchanged. Dropping them would silently alter every
+// request written before this feature existed.
+func openAISeededEffort(e ThinkingEffort) ThinkingOptions {
+	return ThinkingOptions{effort: e, pinned: ThinkingCanSetEffort}
+}
+
+// ============================================================================
+// REASONING EFFORT LADDERS
+// ============================================================================
+//
+// reasoning_effort is per MODEL, not per provider: the vocabulary has grown
+// with each family and OpenAI rejects a rung a given model does not know. The
+// table below is what the portable surface is clamped to. It never constrains
+// WithReasoningEffort, whose values are pinned and forwarded as given.
+//
+// Two rungs are missing everywhere on purpose. "max" exists only on the
+// Responses API, which lingo does not speak, so it can never legally be sent
+// here and clamps down to xhigh. "minimal" is the original GPT-5 family only.
+
+var (
+	// openAIEffortsMinimal is the original GPT-5 ladder: minimal, no none.
+	openAIEffortsMinimal = []ThinkingEffort{
+		ThinkingEffortMinimal, ThinkingEffortLow, ThinkingEffortMedium, ThinkingEffortHigh,
+	}
+	// openAIEffortsNone is gpt-5.1 and 5.2: none arrived, minimal left.
+	openAIEffortsNone = []ThinkingEffort{
+		ThinkingEffortNone, ThinkingEffortLow, ThinkingEffortMedium, ThinkingEffortHigh,
+	}
+	// openAIEffortsXHigh is gpt-5.4 and later, plus gpt-5.1-codex-max.
+	openAIEffortsXHigh = []ThinkingEffort{
+		ThinkingEffortNone, ThinkingEffortLow, ThinkingEffortMedium,
+		ThinkingEffortHigh, ThinkingEffortXHigh,
+	}
+)
+
+// openAIEffortLadders maps model id prefixes to the reasoning_effort values
+// that id accepts, first match wins, so longer prefixes are listed before the
+// shorter ones they extend.
+var openAIEffortLadders = []struct {
+	prefix  string
+	efforts []ThinkingEffort
+}{
+	// o1-mini takes no reasoning_effort at all. Its constructor has always
+	// seeded one anyway, which is pinned and so still sent; the empty ladder
+	// only stops the portable surface from adding to a known-bad request.
+	{"o1-mini", nil},
+	{"o1", []ThinkingEffort{ThinkingEffortLow, ThinkingEffortMedium, ThinkingEffortHigh}},
+	{"o3", []ThinkingEffort{ThinkingEffortLow, ThinkingEffortMedium, ThinkingEffortHigh}},
+	{"o4", []ThinkingEffort{ThinkingEffortLow, ThinkingEffortMedium, ThinkingEffortHigh}},
+	// gpt-5-pro accepts high and nothing else.
+	{"gpt-5-pro", []ThinkingEffort{ThinkingEffortHigh}},
+	// The original GPT-5 family is the only one with "minimal" and the only
+	// pre-5.1 family without "none".
+	{"gpt-5-codex", []ThinkingEffort{ThinkingEffortLow, ThinkingEffortMedium, ThinkingEffortHigh}},
+	{"gpt-5-", openAIEffortsMinimal},
+	{"gpt-5.1-codex-max", openAIEffortsXHigh},
+	{"gpt-5.1", openAIEffortsNone},
+	{"gpt-5.2", openAIEffortsNone},
+	{"gpt-5.4", openAIEffortsXHigh},
+	{"gpt-5.5", openAIEffortsXHigh},
+	{"gpt-5.6", openAIEffortsXHigh},
+	// Bare "gpt-5" is the original family; it sorts after the dotted ids above
+	// so gpt-5.1 and friends never match it.
+	{"gpt-5", openAIEffortsMinimal},
+}
+
+// openAIEffortLadder returns the reasoning_effort rungs a model id accepts.
+//
+// An id this library has not seen gets the current family's ladder rather than
+// nothing, so the generic OpenAIReasoningModel is not the one place the
+// portable surface silently does nothing. The rungs OpenAI has withdrawn --
+// "minimal" from 5.1 onward -- are absent from it, so the optimistic answer
+// cannot ask a newer model for something a newer model is likely to reject.
+func openAIEffortLadder(modelID string) []ThinkingEffort {
+	for _, l := range openAIEffortLadders {
+		if strings.HasPrefix(modelID, l.prefix) {
+			return l.efforts
+		}
+	}
+	return openAIEffortsXHigh
+}
+
+// openAIThinkingDimensions answers ModelThinkingDimensions for one reasoning
+// model, resolved from the model id so a zero-value literal and the generic
+// OpenAIReasoningModel both get the right answer without a constructor having
+// stored anything.
+//
+// Only two dimensions are ever real here. Chat completions has no thinking
+// token budget and no boolean toggle -- "off" is the effort rung "none", which
+// only gpt-5.1 and later accept -- and it returns no reasoning trace at all, so
+// there is nothing to hide and nothing to report but the token count.
+func openAIThinkingDimensions(modelID string) ThinkingDimension {
+	if len(openAIEffortLadder(modelID)) == 0 {
+		return ThinkingCanReportTokens
+	}
+	return ThinkingCanSetEffort | ThinkingCanReportTokens
 }
 
 // ============================================================================
@@ -84,7 +231,6 @@ func (m *GPT4o) ModelName() string {
 }
 func (m *GPT4o) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT4o) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT4o) isStandard() bool       { return true }
 
 func (m *GPT4o) WithVersion(v string) *GPT4o      { m.modelVersion = v; return m }
 func (m *GPT4o) WithMaxTokens(n int) *GPT4o       { m.maxTokens = n; return m }
@@ -109,7 +255,6 @@ func (m *GPT4oMini) ModelName() string {
 }
 func (m *GPT4oMini) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT4oMini) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT4oMini) isStandard() bool       { return true }
 
 func (m *GPT4oMini) WithVersion(v string) *GPT4oMini      { m.modelVersion = v; return m }
 func (m *GPT4oMini) WithMaxTokens(n int) *GPT4oMini       { m.maxTokens = n; return m }
@@ -136,7 +281,6 @@ func (m *GPT4Turbo) ModelName() string {
 }
 func (m *GPT4Turbo) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT4Turbo) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT4Turbo) isStandard() bool       { return true }
 
 func (m *GPT4Turbo) WithVersion(v string) *GPT4Turbo      { m.modelVersion = v; return m }
 func (m *GPT4Turbo) WithMaxTokens(n int) *GPT4Turbo       { m.maxTokens = n; return m }
@@ -165,7 +309,6 @@ func (m *GPT4) ModelName() string {
 }
 func (m *GPT4) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT4) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT4) isStandard() bool       { return true }
 
 func (m *GPT4) WithVersion(v string) *GPT4      { m.modelVersion = v; return m }
 func (m *GPT4) WithMaxTokens(n int) *GPT4       { m.maxTokens = n; return m }
@@ -192,7 +335,6 @@ func (m *GPT41) ModelName() string {
 }
 func (m *GPT41) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT41) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT41) isStandard() bool       { return true }
 
 func (m *GPT41) WithVersion(v string) *GPT41      { m.modelVersion = v; return m }
 func (m *GPT41) WithMaxTokens(n int) *GPT41       { m.maxTokens = n; return m }
@@ -211,7 +353,6 @@ type GPT41Mini struct{ openAIStandardOptions }
 func (m *GPT41Mini) ModelName() string      { return "gpt-4.1-mini" }
 func (m *GPT41Mini) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT41Mini) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT41Mini) isStandard() bool       { return true }
 
 func (m *GPT41Mini) WithMaxTokens(n int) *GPT41Mini       { m.maxTokens = n; return m }
 func (m *GPT41Mini) WithTemperature(t float64) *GPT41Mini { m.temperature = t; return m }
@@ -229,7 +370,6 @@ type GPT41Nano struct{ openAIStandardOptions }
 func (m *GPT41Nano) ModelName() string      { return "gpt-4.1-nano" }
 func (m *GPT41Nano) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT41Nano) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT41Nano) isStandard() bool       { return true }
 
 func (m *GPT41Nano) WithMaxTokens(n int) *GPT41Nano       { m.maxTokens = n; return m }
 func (m *GPT41Nano) WithTemperature(t float64) *GPT41Nano { m.temperature = t; return m }
@@ -255,7 +395,6 @@ func (m *GPT35Turbo) ModelName() string {
 }
 func (m *GPT35Turbo) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT35Turbo) SystemPrompt() string   { return m.systemPrompt }
-func (m *GPT35Turbo) isStandard() bool       { return true }
 
 func (m *GPT35Turbo) WithVersion(v string) *GPT35Turbo      { m.modelVersion = v; return m }
 func (m *GPT35Turbo) WithMaxTokens(n int) *GPT35Turbo       { m.maxTokens = n; return m }
@@ -289,17 +428,20 @@ func (m *O1) ModelName() string {
 func (m *O1) Provider() ProviderType { return ProviderOpenAI }
 func (m *O1) SystemPrompt() string   { return m.systemPrompt }
 func (m *O1) isReasoning() bool      { return true }
+func (m *O1) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *O1) WithVersion(v string) *O1          { m.modelVersion = v; return m }
 func (m *O1) WithMaxCompletionTokens(n int) *O1 { m.maxCompletionTokens = n; return m }
-func (m *O1) WithReasoningEffort(e string) *O1  { m.reasoningEffort = e; return m }
+func (m *O1) WithReasoningEffort(e string) *O1  { m.setReasoningEffort(e); return m }
 func (m *O1) WithSystemPrompt(s string) *O1     { m.systemPrompt = s; return m }
 
 // NewO1 creates a new O1 model with default options
 //
 // Deprecated: scheduled for shutdown by OpenAI on Oct 23, 2026. Migrate to GPT56Sol.
 func NewO1() *O1 {
-	return &O1{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &O1{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // O1Mini represents the O1-mini reasoning model.
@@ -317,17 +459,20 @@ func (m *O1Mini) ModelName() string {
 func (m *O1Mini) Provider() ProviderType { return ProviderOpenAI }
 func (m *O1Mini) SystemPrompt() string   { return m.systemPrompt }
 func (m *O1Mini) isReasoning() bool      { return true }
+func (m *O1Mini) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *O1Mini) WithVersion(v string) *O1Mini          { m.modelVersion = v; return m }
 func (m *O1Mini) WithMaxCompletionTokens(n int) *O1Mini { m.maxCompletionTokens = n; return m }
-func (m *O1Mini) WithReasoningEffort(e string) *O1Mini  { m.reasoningEffort = e; return m }
+func (m *O1Mini) WithReasoningEffort(e string) *O1Mini  { m.setReasoningEffort(e); return m }
 func (m *O1Mini) WithSystemPrompt(s string) *O1Mini     { m.systemPrompt = s; return m }
 
 // NewO1Mini creates a new O1-mini model with default options
 //
 // Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O4Mini or GPT5Mini.
 func NewO1Mini() *O1Mini {
-	return &O1Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &O1Mini{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // O1Pro represents the O1-pro reasoning model
@@ -343,15 +488,18 @@ func (m *O1Pro) ModelName() string {
 func (m *O1Pro) Provider() ProviderType { return ProviderOpenAI }
 func (m *O1Pro) SystemPrompt() string   { return m.systemPrompt }
 func (m *O1Pro) isReasoning() bool      { return true }
+func (m *O1Pro) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *O1Pro) WithVersion(v string) *O1Pro          { m.modelVersion = v; return m }
 func (m *O1Pro) WithMaxCompletionTokens(n int) *O1Pro { m.maxCompletionTokens = n; return m }
-func (m *O1Pro) WithReasoningEffort(e string) *O1Pro  { m.reasoningEffort = e; return m }
+func (m *O1Pro) WithReasoningEffort(e string) *O1Pro  { m.setReasoningEffort(e); return m }
 func (m *O1Pro) WithSystemPrompt(s string) *O1Pro     { m.systemPrompt = s; return m }
 
 // NewO1Pro creates a new O1-pro model with default options
 func NewO1Pro() *O1Pro {
-	return &O1Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
+	return &O1Pro{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortHigh)}}
 }
 
 // O3 represents the O3 reasoning model
@@ -369,17 +517,20 @@ func (m *O3) ModelName() string {
 func (m *O3) Provider() ProviderType { return ProviderOpenAI }
 func (m *O3) SystemPrompt() string   { return m.systemPrompt }
 func (m *O3) isReasoning() bool      { return true }
+func (m *O3) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *O3) WithVersion(v string) *O3          { m.modelVersion = v; return m }
 func (m *O3) WithMaxCompletionTokens(n int) *O3 { m.maxCompletionTokens = n; return m }
-func (m *O3) WithReasoningEffort(e string) *O3  { m.reasoningEffort = e; return m }
+func (m *O3) WithReasoningEffort(e string) *O3  { m.setReasoningEffort(e); return m }
 func (m *O3) WithSystemPrompt(s string) *O3     { m.systemPrompt = s; return m }
 
 // NewO3 creates a new O3 model with default options
 //
 // Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 func NewO3() *O3 {
-	return &O3{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &O3{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // O3Mini represents the O3-mini reasoning model
@@ -395,15 +546,18 @@ func (m *O3Mini) ModelName() string {
 func (m *O3Mini) Provider() ProviderType { return ProviderOpenAI }
 func (m *O3Mini) SystemPrompt() string   { return m.systemPrompt }
 func (m *O3Mini) isReasoning() bool      { return true }
+func (m *O3Mini) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *O3Mini) WithVersion(v string) *O3Mini          { m.modelVersion = v; return m }
 func (m *O3Mini) WithMaxCompletionTokens(n int) *O3Mini { m.maxCompletionTokens = n; return m }
-func (m *O3Mini) WithReasoningEffort(e string) *O3Mini  { m.reasoningEffort = e; return m }
+func (m *O3Mini) WithReasoningEffort(e string) *O3Mini  { m.setReasoningEffort(e); return m }
 func (m *O3Mini) WithSystemPrompt(s string) *O3Mini     { m.systemPrompt = s; return m }
 
 // NewO3Mini creates a new O3-mini model with default options
 func NewO3Mini() *O3Mini {
-	return &O3Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &O3Mini{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // O4Mini represents the O4-mini reasoning model
@@ -419,15 +573,18 @@ func (m *O4Mini) ModelName() string {
 func (m *O4Mini) Provider() ProviderType { return ProviderOpenAI }
 func (m *O4Mini) SystemPrompt() string   { return m.systemPrompt }
 func (m *O4Mini) isReasoning() bool      { return true }
+func (m *O4Mini) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *O4Mini) WithVersion(v string) *O4Mini          { m.modelVersion = v; return m }
 func (m *O4Mini) WithMaxCompletionTokens(n int) *O4Mini { m.maxCompletionTokens = n; return m }
-func (m *O4Mini) WithReasoningEffort(e string) *O4Mini  { m.reasoningEffort = e; return m }
+func (m *O4Mini) WithReasoningEffort(e string) *O4Mini  { m.setReasoningEffort(e); return m }
 func (m *O4Mini) WithSystemPrompt(s string) *O4Mini     { m.systemPrompt = s; return m }
 
 // NewO4Mini creates a new O4-mini model with default options
 func NewO4Mini() *O4Mini {
-	return &O4Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &O4Mini{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT5 represents the GPT-5 reasoning model
@@ -439,16 +596,19 @@ func (m *GPT5) ModelName() string      { return "gpt-5" }
 func (m *GPT5) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT5) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT5) isReasoning() bool      { return true }
+func (m *GPT5) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT5) WithMaxCompletionTokens(n int) *GPT5 { m.maxCompletionTokens = n; return m }
-func (m *GPT5) WithReasoningEffort(e string) *GPT5  { m.reasoningEffort = e; return m }
+func (m *GPT5) WithReasoningEffort(e string) *GPT5  { m.setReasoningEffort(e); return m }
 func (m *GPT5) WithSystemPrompt(s string) *GPT5     { m.systemPrompt = s; return m }
 
 // NewGPT5 creates a new GPT-5 model with default options
 //
 // Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Sol.
 func NewGPT5() *GPT5 {
-	return &GPT5{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &GPT5{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT5Mini represents the GPT-5-mini reasoning model
@@ -460,16 +620,19 @@ func (m *GPT5Mini) ModelName() string      { return "gpt-5-mini" }
 func (m *GPT5Mini) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT5Mini) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT5Mini) isReasoning() bool      { return true }
+func (m *GPT5Mini) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT5Mini) WithMaxCompletionTokens(n int) *GPT5Mini { m.maxCompletionTokens = n; return m }
-func (m *GPT5Mini) WithReasoningEffort(e string) *GPT5Mini  { m.reasoningEffort = e; return m }
+func (m *GPT5Mini) WithReasoningEffort(e string) *GPT5Mini  { m.setReasoningEffort(e); return m }
 func (m *GPT5Mini) WithSystemPrompt(s string) *GPT5Mini     { m.systemPrompt = s; return m }
 
 // NewGPT5Mini creates a new GPT-5-mini model with default options
 //
 // Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Terra.
 func NewGPT5Mini() *GPT5Mini {
-	return &GPT5Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &GPT5Mini{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT5Nano represents the GPT-5-nano reasoning model
@@ -481,16 +644,19 @@ func (m *GPT5Nano) ModelName() string      { return "gpt-5-nano" }
 func (m *GPT5Nano) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT5Nano) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT5Nano) isReasoning() bool      { return true }
+func (m *GPT5Nano) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT5Nano) WithMaxCompletionTokens(n int) *GPT5Nano { m.maxCompletionTokens = n; return m }
-func (m *GPT5Nano) WithReasoningEffort(e string) *GPT5Nano  { m.reasoningEffort = e; return m }
+func (m *GPT5Nano) WithReasoningEffort(e string) *GPT5Nano  { m.setReasoningEffort(e); return m }
 func (m *GPT5Nano) WithSystemPrompt(s string) *GPT5Nano     { m.systemPrompt = s; return m }
 
 // NewGPT5Nano creates a new GPT-5-nano model with default options
 //
 // Deprecated: scheduled for shutdown by OpenAI on Dec 11, 2026. Migrate to GPT56Luna.
 func NewGPT5Nano() *GPT5Nano {
-	return &GPT5Nano{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &GPT5Nano{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT5Pro represents the GPT-5-pro reasoning model
@@ -500,14 +666,17 @@ func (m *GPT5Pro) ModelName() string      { return "gpt-5-pro" }
 func (m *GPT5Pro) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT5Pro) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT5Pro) isReasoning() bool      { return true }
+func (m *GPT5Pro) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT5Pro) WithMaxCompletionTokens(n int) *GPT5Pro { m.maxCompletionTokens = n; return m }
-func (m *GPT5Pro) WithReasoningEffort(e string) *GPT5Pro  { m.reasoningEffort = e; return m }
+func (m *GPT5Pro) WithReasoningEffort(e string) *GPT5Pro  { m.setReasoningEffort(e); return m }
 func (m *GPT5Pro) WithSystemPrompt(s string) *GPT5Pro     { m.systemPrompt = s; return m }
 
 // NewGPT5Pro creates a new GPT-5-pro model with default options
 func NewGPT5Pro() *GPT5Pro {
-	return &GPT5Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
+	return &GPT5Pro{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortHigh)}}
 }
 
 // GPT51 represents the GPT-5.1 reasoning model
@@ -517,14 +686,17 @@ func (m *GPT51) ModelName() string      { return "gpt-5.1" }
 func (m *GPT51) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT51) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT51) isReasoning() bool      { return true }
+func (m *GPT51) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT51) WithMaxCompletionTokens(n int) *GPT51 { m.maxCompletionTokens = n; return m }
-func (m *GPT51) WithReasoningEffort(e string) *GPT51  { m.reasoningEffort = e; return m }
+func (m *GPT51) WithReasoningEffort(e string) *GPT51  { m.setReasoningEffort(e); return m }
 func (m *GPT51) WithSystemPrompt(s string) *GPT51     { m.systemPrompt = s; return m }
 
 // NewGPT51 creates a new GPT-5.1 model with default options
 func NewGPT51() *GPT51 {
-	return &GPT51{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &GPT51{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT51Mini represents the GPT-5.1-mini reasoning model
@@ -534,14 +706,17 @@ func (m *GPT51Mini) ModelName() string      { return "gpt-5.1-mini" }
 func (m *GPT51Mini) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT51Mini) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT51Mini) isReasoning() bool      { return true }
+func (m *GPT51Mini) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT51Mini) WithMaxCompletionTokens(n int) *GPT51Mini { m.maxCompletionTokens = n; return m }
-func (m *GPT51Mini) WithReasoningEffort(e string) *GPT51Mini  { m.reasoningEffort = e; return m }
+func (m *GPT51Mini) WithReasoningEffort(e string) *GPT51Mini  { m.setReasoningEffort(e); return m }
 func (m *GPT51Mini) WithSystemPrompt(s string) *GPT51Mini     { m.systemPrompt = s; return m }
 
 // NewGPT51Mini creates a new GPT-5.1-mini model with default options
 func NewGPT51Mini() *GPT51Mini {
-	return &GPT51Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &GPT51Mini{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT51Nano represents the GPT-5.1-nano reasoning model
@@ -551,14 +726,17 @@ func (m *GPT51Nano) ModelName() string      { return "gpt-5.1-nano" }
 func (m *GPT51Nano) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT51Nano) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT51Nano) isReasoning() bool      { return true }
+func (m *GPT51Nano) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT51Nano) WithMaxCompletionTokens(n int) *GPT51Nano { m.maxCompletionTokens = n; return m }
-func (m *GPT51Nano) WithReasoningEffort(e string) *GPT51Nano  { m.reasoningEffort = e; return m }
+func (m *GPT51Nano) WithReasoningEffort(e string) *GPT51Nano  { m.setReasoningEffort(e); return m }
 func (m *GPT51Nano) WithSystemPrompt(s string) *GPT51Nano     { m.systemPrompt = s; return m }
 
 // NewGPT51Nano creates a new GPT-5.1-nano model with default options
 func NewGPT51Nano() *GPT51Nano {
-	return &GPT51Nano{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &GPT51Nano{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT51Codex represents the GPT-5.1-codex reasoning model
@@ -570,16 +748,19 @@ func (m *GPT51Codex) ModelName() string      { return "gpt-5.1-codex" }
 func (m *GPT51Codex) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT51Codex) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT51Codex) isReasoning() bool      { return true }
+func (m *GPT51Codex) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT51Codex) WithMaxCompletionTokens(n int) *GPT51Codex { m.maxCompletionTokens = n; return m }
-func (m *GPT51Codex) WithReasoningEffort(e string) *GPT51Codex  { m.reasoningEffort = e; return m }
+func (m *GPT51Codex) WithReasoningEffort(e string) *GPT51Codex  { m.setReasoningEffort(e); return m }
 func (m *GPT51Codex) WithSystemPrompt(s string) *GPT51Codex     { m.systemPrompt = s; return m }
 
 // NewGPT51Codex creates a new GPT-5.1-codex model with default options
 //
 // Deprecated: retired by OpenAI (Jul 23, 2026); the API returns 404. Migrate to GPT56Sol.
 func NewGPT51Codex() *GPT51Codex {
-	return &GPT51Codex{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &GPT51Codex{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT51CodexMini represents the GPT-5.1-codex-mini reasoning model
@@ -591,13 +772,16 @@ func (m *GPT51CodexMini) ModelName() string      { return "gpt-5.1-codex-mini" }
 func (m *GPT51CodexMini) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT51CodexMini) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT51CodexMini) isReasoning() bool      { return true }
+func (m *GPT51CodexMini) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT51CodexMini) WithMaxCompletionTokens(n int) *GPT51CodexMini {
 	m.maxCompletionTokens = n
 	return m
 }
 func (m *GPT51CodexMini) WithReasoningEffort(e string) *GPT51CodexMini {
-	m.reasoningEffort = e
+	m.setReasoningEffort(e)
 	return m
 }
 func (m *GPT51CodexMini) WithSystemPrompt(s string) *GPT51CodexMini { m.systemPrompt = s; return m }
@@ -606,7 +790,7 @@ func (m *GPT51CodexMini) WithSystemPrompt(s string) *GPT51CodexMini { m.systemPr
 //
 // Deprecated: retired by OpenAI (Jul 23, 2026); the API returns 404. Migrate to GPT56Luna.
 func NewGPT51CodexMini() *GPT51CodexMini {
-	return &GPT51CodexMini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &GPT51CodexMini{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT54Nano represents the GPT-5.4-nano reasoning model (cheapest GPT-5.4-class model)
@@ -616,14 +800,17 @@ func (m *GPT54Nano) ModelName() string      { return "gpt-5.4-nano" }
 func (m *GPT54Nano) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT54Nano) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT54Nano) isReasoning() bool      { return true }
+func (m *GPT54Nano) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT54Nano) WithMaxCompletionTokens(n int) *GPT54Nano { m.maxCompletionTokens = n; return m }
-func (m *GPT54Nano) WithReasoningEffort(e string) *GPT54Nano  { m.reasoningEffort = e; return m }
+func (m *GPT54Nano) WithReasoningEffort(e string) *GPT54Nano  { m.setReasoningEffort(e); return m }
 func (m *GPT54Nano) WithSystemPrompt(s string) *GPT54Nano     { m.systemPrompt = s; return m }
 
 // NewGPT54Nano creates a new GPT-5.4-nano model with default options
 func NewGPT54Nano() *GPT54Nano {
-	return &GPT54Nano{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &GPT54Nano{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT54Mini represents the GPT-5.4-mini reasoning model (strong mini model for coding and subagents)
@@ -633,14 +820,17 @@ func (m *GPT54Mini) ModelName() string      { return "gpt-5.4-mini" }
 func (m *GPT54Mini) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT54Mini) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT54Mini) isReasoning() bool      { return true }
+func (m *GPT54Mini) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT54Mini) WithMaxCompletionTokens(n int) *GPT54Mini { m.maxCompletionTokens = n; return m }
-func (m *GPT54Mini) WithReasoningEffort(e string) *GPT54Mini  { m.reasoningEffort = e; return m }
+func (m *GPT54Mini) WithReasoningEffort(e string) *GPT54Mini  { m.setReasoningEffort(e); return m }
 func (m *GPT54Mini) WithSystemPrompt(s string) *GPT54Mini     { m.systemPrompt = s; return m }
 
 // NewGPT54Mini creates a new GPT-5.4-mini model with default options
 func NewGPT54Mini() *GPT54Mini {
-	return &GPT54Mini{openAIReasoningOptions{maxCompletionTokens: 4096, reasoningEffort: "medium"}}
+	return &GPT54Mini{openAIReasoningOptions{maxCompletionTokens: 4096, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT54 represents the GPT-5.4 reasoning model (affordable model for coding and professional work)
@@ -650,14 +840,17 @@ func (m *GPT54) ModelName() string      { return "gpt-5.4" }
 func (m *GPT54) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT54) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT54) isReasoning() bool      { return true }
+func (m *GPT54) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT54) WithMaxCompletionTokens(n int) *GPT54 { m.maxCompletionTokens = n; return m }
-func (m *GPT54) WithReasoningEffort(e string) *GPT54  { m.reasoningEffort = e; return m }
+func (m *GPT54) WithReasoningEffort(e string) *GPT54  { m.setReasoningEffort(e); return m }
 func (m *GPT54) WithSystemPrompt(s string) *GPT54     { m.systemPrompt = s; return m }
 
 // NewGPT54 creates a new GPT-5.4 model with default options
 func NewGPT54() *GPT54 {
-	return &GPT54{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &GPT54{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT54Pro represents the GPT-5.4-pro reasoning model (higher-precision GPT-5.4)
@@ -667,14 +860,17 @@ func (m *GPT54Pro) ModelName() string      { return "gpt-5.4-pro" }
 func (m *GPT54Pro) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT54Pro) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT54Pro) isReasoning() bool      { return true }
+func (m *GPT54Pro) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT54Pro) WithMaxCompletionTokens(n int) *GPT54Pro { m.maxCompletionTokens = n; return m }
-func (m *GPT54Pro) WithReasoningEffort(e string) *GPT54Pro  { m.reasoningEffort = e; return m }
+func (m *GPT54Pro) WithReasoningEffort(e string) *GPT54Pro  { m.setReasoningEffort(e); return m }
 func (m *GPT54Pro) WithSystemPrompt(s string) *GPT54Pro     { m.systemPrompt = s; return m }
 
 // NewGPT54Pro creates a new GPT-5.4-pro model with default options
 func NewGPT54Pro() *GPT54Pro {
-	return &GPT54Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
+	return &GPT54Pro{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortHigh)}}
 }
 
 // GPT55 represents the GPT-5.5 reasoning model
@@ -685,14 +881,17 @@ func (m *GPT55) ModelName() string      { return "gpt-5.5" }
 func (m *GPT55) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT55) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT55) isReasoning() bool      { return true }
+func (m *GPT55) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT55) WithMaxCompletionTokens(n int) *GPT55 { m.maxCompletionTokens = n; return m }
-func (m *GPT55) WithReasoningEffort(e string) *GPT55  { m.reasoningEffort = e; return m }
+func (m *GPT55) WithReasoningEffort(e string) *GPT55  { m.setReasoningEffort(e); return m }
 func (m *GPT55) WithSystemPrompt(s string) *GPT55     { m.systemPrompt = s; return m }
 
 // NewGPT55 creates a new GPT-5.5 model with default options
 func NewGPT55() *GPT55 {
-	return &GPT55{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &GPT55{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT55Pro represents the GPT-5.5-pro reasoning model (smarter, more precise GPT-5.5)
@@ -702,14 +901,17 @@ func (m *GPT55Pro) ModelName() string      { return "gpt-5.5-pro" }
 func (m *GPT55Pro) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT55Pro) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT55Pro) isReasoning() bool      { return true }
+func (m *GPT55Pro) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *GPT55Pro) WithMaxCompletionTokens(n int) *GPT55Pro { m.maxCompletionTokens = n; return m }
-func (m *GPT55Pro) WithReasoningEffort(e string) *GPT55Pro  { m.reasoningEffort = e; return m }
+func (m *GPT55Pro) WithReasoningEffort(e string) *GPT55Pro  { m.setReasoningEffort(e); return m }
 func (m *GPT55Pro) WithSystemPrompt(s string) *GPT55Pro     { m.systemPrompt = s; return m }
 
 // NewGPT55Pro creates a new GPT-5.5-pro model with default options
 func NewGPT55Pro() *GPT55Pro {
-	return &GPT55Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
+	return &GPT55Pro{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortHigh)}}
 }
 
 // GPT56Sol represents the GPT-5.6 Sol reasoning model.
@@ -722,14 +924,18 @@ func (m *GPT56Sol) ModelName() string      { return "gpt-5.6-sol" }
 func (m *GPT56Sol) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT56Sol) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT56Sol) isReasoning() bool      { return true }
+func (m *GPT56Sol) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
+func (m *GPT56Sol) supportsExplicitCache() bool { return true }
 
 func (m *GPT56Sol) WithMaxCompletionTokens(n int) *GPT56Sol { m.maxCompletionTokens = n; return m }
-func (m *GPT56Sol) WithReasoningEffort(e string) *GPT56Sol  { m.reasoningEffort = e; return m }
+func (m *GPT56Sol) WithReasoningEffort(e string) *GPT56Sol  { m.setReasoningEffort(e); return m }
 func (m *GPT56Sol) WithSystemPrompt(s string) *GPT56Sol     { m.systemPrompt = s; return m }
 
 // NewGPT56Sol creates a new GPT-5.6 Sol model with default options
 func NewGPT56Sol() *GPT56Sol {
-	return &GPT56Sol{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &GPT56Sol{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT56Terra represents the GPT-5.6 Terra reasoning model.
@@ -741,14 +947,18 @@ func (m *GPT56Terra) ModelName() string      { return "gpt-5.6-terra" }
 func (m *GPT56Terra) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT56Terra) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT56Terra) isReasoning() bool      { return true }
+func (m *GPT56Terra) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
+func (m *GPT56Terra) supportsExplicitCache() bool { return true }
 
 func (m *GPT56Terra) WithMaxCompletionTokens(n int) *GPT56Terra { m.maxCompletionTokens = n; return m }
-func (m *GPT56Terra) WithReasoningEffort(e string) *GPT56Terra  { m.reasoningEffort = e; return m }
+func (m *GPT56Terra) WithReasoningEffort(e string) *GPT56Terra  { m.setReasoningEffort(e); return m }
 func (m *GPT56Terra) WithSystemPrompt(s string) *GPT56Terra     { m.systemPrompt = s; return m }
 
 // NewGPT56Terra creates a new GPT-5.6 Terra model with default options
 func NewGPT56Terra() *GPT56Terra {
-	return &GPT56Terra{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &GPT56Terra{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // GPT56Luna represents the GPT-5.6 Luna reasoning model.
@@ -760,14 +970,18 @@ func (m *GPT56Luna) ModelName() string      { return "gpt-5.6-luna" }
 func (m *GPT56Luna) Provider() ProviderType { return ProviderOpenAI }
 func (m *GPT56Luna) SystemPrompt() string   { return m.systemPrompt }
 func (m *GPT56Luna) isReasoning() bool      { return true }
+func (m *GPT56Luna) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
+func (m *GPT56Luna) supportsExplicitCache() bool { return true }
 
 func (m *GPT56Luna) WithMaxCompletionTokens(n int) *GPT56Luna { m.maxCompletionTokens = n; return m }
-func (m *GPT56Luna) WithReasoningEffort(e string) *GPT56Luna  { m.reasoningEffort = e; return m }
+func (m *GPT56Luna) WithReasoningEffort(e string) *GPT56Luna  { m.setReasoningEffort(e); return m }
 func (m *GPT56Luna) WithSystemPrompt(s string) *GPT56Luna     { m.systemPrompt = s; return m }
 
 // NewGPT56Luna creates a new GPT-5.6 Luna model with default options
 func NewGPT56Luna() *GPT56Luna {
-	return &GPT56Luna{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "low"}}
+	return &GPT56Luna{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortLow)}}
 }
 
 // O3Pro represents the O3-pro reasoning model
@@ -777,14 +991,17 @@ func (m *O3Pro) ModelName() string      { return "o3-pro" }
 func (m *O3Pro) Provider() ProviderType { return ProviderOpenAI }
 func (m *O3Pro) SystemPrompt() string   { return m.systemPrompt }
 func (m *O3Pro) isReasoning() bool      { return true }
+func (m *O3Pro) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *O3Pro) WithMaxCompletionTokens(n int) *O3Pro { m.maxCompletionTokens = n; return m }
-func (m *O3Pro) WithReasoningEffort(e string) *O3Pro  { m.reasoningEffort = e; return m }
+func (m *O3Pro) WithReasoningEffort(e string) *O3Pro  { m.setReasoningEffort(e); return m }
 func (m *O3Pro) WithSystemPrompt(s string) *O3Pro     { m.systemPrompt = s; return m }
 
 // NewO3Pro creates a new O3-pro model with default options
 func NewO3Pro() *O3Pro {
-	return &O3Pro{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "high"}}
+	return &O3Pro{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortHigh)}}
 }
 
 // O1Preview represents the O1-preview reasoning model.
@@ -802,17 +1019,20 @@ func (m *O1Preview) ModelName() string {
 func (m *O1Preview) Provider() ProviderType { return ProviderOpenAI }
 func (m *O1Preview) SystemPrompt() string   { return m.systemPrompt }
 func (m *O1Preview) isReasoning() bool      { return true }
+func (m *O1Preview) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
 
 func (m *O1Preview) WithVersion(v string) *O1Preview          { m.modelVersion = v; return m }
 func (m *O1Preview) WithMaxCompletionTokens(n int) *O1Preview { m.maxCompletionTokens = n; return m }
-func (m *O1Preview) WithReasoningEffort(e string) *O1Preview  { m.reasoningEffort = e; return m }
+func (m *O1Preview) WithReasoningEffort(e string) *O1Preview  { m.setReasoningEffort(e); return m }
 func (m *O1Preview) WithSystemPrompt(s string) *O1Preview     { m.systemPrompt = s; return m }
 
 // NewO1Preview creates a new O1-preview model with default options
 //
 // Deprecated: removed from the OpenAI API (deprecation announced Apr 2025); requests return 404. Migrate to O3 or GPT5.
 func NewO1Preview() *O1Preview {
-	return &O1Preview{openAIReasoningOptions{maxCompletionTokens: 8192, reasoningEffort: "medium"}}
+	return &O1Preview{openAIReasoningOptions{maxCompletionTokens: 8192, thinking: openAISeededEffort(ThinkingEffortMedium)}}
 }
 
 // ============================================================================
@@ -830,7 +1050,6 @@ type OpenAIModel struct {
 func (m *OpenAIModel) ModelName() string      { return m.modelID }
 func (m *OpenAIModel) Provider() ProviderType { return ProviderOpenAI }
 func (m *OpenAIModel) SystemPrompt() string   { return m.systemPrompt }
-func (m *OpenAIModel) isStandard() bool       { return true }
 
 func (m *OpenAIModel) WithMaxTokens(n int) *OpenAIModel       { m.maxTokens = n; return m }
 func (m *OpenAIModel) WithTemperature(t float64) *OpenAIModel { m.temperature = t; return m }
@@ -846,7 +1065,8 @@ func NewOpenAIModel(modelID string) *OpenAIModel {
 // Use this for any reasoning model this library has no named type for,
 // so new model releases don't require a library update.
 type OpenAIReasoningModel struct {
-	modelID string
+	modelID       string
+	explicitCache bool
 	openAIReasoningOptions
 }
 
@@ -854,13 +1074,28 @@ func (m *OpenAIReasoningModel) ModelName() string      { return m.modelID }
 func (m *OpenAIReasoningModel) Provider() ProviderType { return ProviderOpenAI }
 func (m *OpenAIReasoningModel) SystemPrompt() string   { return m.systemPrompt }
 func (m *OpenAIReasoningModel) isReasoning() bool      { return true }
+func (m *OpenAIReasoningModel) thinkingDimensions() ThinkingDimension {
+	return openAIThinkingDimensions(m.ModelName())
+}
+func (m *OpenAIReasoningModel) supportsExplicitCache() bool { return m.explicitCache }
+
+// WithExplicitPromptCache declares that this model ID accepts per-content-part
+// prompt_cache_breakpoint markers. lingo ships the marker on the GPT-5.6 family;
+// set this for a newer model ID lingo has no named type for yet. Off by default:
+// a breakpoint sent to a model that predates the field is an error OpenAI raises,
+// not one lingo can catch. It does not enable caching by itself -- pair it with
+// Cached.
+func (m *OpenAIReasoningModel) WithExplicitPromptCache(ok bool) *OpenAIReasoningModel {
+	m.explicitCache = ok
+	return m
+}
 
 func (m *OpenAIReasoningModel) WithMaxCompletionTokens(n int) *OpenAIReasoningModel {
 	m.maxCompletionTokens = n
 	return m
 }
 func (m *OpenAIReasoningModel) WithReasoningEffort(e string) *OpenAIReasoningModel {
-	m.reasoningEffort = e
+	m.setReasoningEffort(e)
 	return m
 }
 func (m *OpenAIReasoningModel) WithSystemPrompt(s string) *OpenAIReasoningModel {
@@ -877,16 +1112,37 @@ func NewOpenAIReasoningModel(modelID string) *OpenAIReasoningModel {
 // OPENAI PROVIDER CLIENT
 // ============================================================================
 
-// openAIStandardModel is an interface for standard models
-type openAIStandardModel interface {
-	Model
-	isStandard() bool
-}
-
 // openAIReasoningModel is an interface for reasoning models
 type openAIReasoningModel interface {
 	Model
 	isReasoning() bool
+}
+
+// openAIExplicitCacheModel is implemented by the OpenAI models documented to
+// accept a per-content-part prompt_cache_breakpoint. OpenAI gates the field to
+// gpt-5.6 and later, so the marker is declared per model type rather than
+// inferred, in the same idiom as isReasoning.
+type openAIExplicitCacheModel interface {
+	Model
+	supportsExplicitCache() bool
+}
+
+// openAISupportsExplicitCache reports whether this model may carry breakpoints.
+// The generic model types answer at runtime, so the method's value is what
+// counts, not merely that the type implements the interface.
+func openAISupportsExplicitCache(model Model) bool {
+	m, ok := model.(openAIExplicitCacheModel)
+	return ok && m.supportsExplicitCache()
+}
+
+// openAICachedTextPart builds a text content part that ends a reusable prefix.
+// The breakpoint inherits the request's TTL, which OpenAI fixes at 30m, so
+// CacheOptions.TTL has nothing to say here and is deliberately not consulted.
+func openAICachedTextPart(text string) openai.ChatCompletionContentPartTextParam {
+	return openai.ChatCompletionContentPartTextParam{
+		Text:                  text,
+		PromptCacheBreakpoint: openai.NewChatCompletionContentPartTextPromptCacheBreakpointParam(),
+	}
 }
 
 // openAIClient implements the Provider interface for OpenAI
@@ -934,22 +1190,54 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Determine if this is a reasoning model
+	// Determine if this is a reasoning model. Only the presence of the marker
+	// method matters here, unlike the cache gate below, whose value is settable.
+	//
+	// Metadata["is_reasoning_model"] means exactly that on this provider: it is a
+	// property of the model TYPE, not of the request. It reports true for
+	// NoThinking(NewGPT51()) and for NewGPT51().WithReasoningEffort("none"),
+	// both of which send reasoning_effort "none" -- o3 is still an o3. That is
+	// deliberate and predates the portable surface, so it stays; the
+	// OpenAI-compatible client's flag of the same name is the other reading
+	// ("this REQUEST reasons") and answers false for those bodies. Read
+	// Metadata["reasoning_effort"] or the request itself if what you need is
+	// whether one particular call reasoned.
 	_, isReasoning := model.(openAIReasoningModel)
+
+	// Breakpoints are opt-in and model-gated: with either half missing the
+	// messages below stay in the plain string form they have always had.
+	// cacheBreakpoint records the marker that was placed, which is not the same
+	// as the one that was asked for -- a model with no system prompt gets none.
+	co := modelCacheOptions(model)
+	breakpoints := openAISupportsExplicitCache(model)
+	var cacheBreakpoint bool
 
 	// Build messages with optional system prompt
 	var messages []openai.ChatCompletionMessageParamUnion
 
-	if model.SystemPrompt() != "" {
-		if isReasoning {
+	if s := model.SystemPrompt(); s != "" {
+		switch {
+		case breakpoints && co.SystemPromptCached() && isReasoning:
+			messages = append(messages, openai.DeveloperMessage([]openai.ChatCompletionContentPartTextParam{openAICachedTextPart(s)}))
+			cacheBreakpoint = true
+		case breakpoints && co.SystemPromptCached():
+			messages = append(messages, openai.SystemMessage([]openai.ChatCompletionContentPartTextParam{openAICachedTextPart(s)}))
+			cacheBreakpoint = true
+		case isReasoning:
 			// Reasoning models use "developer" role instead of "system"
-			messages = append(messages, openai.DeveloperMessage(model.SystemPrompt()))
-		} else {
+			messages = append(messages, openai.DeveloperMessage(s))
+		default:
 			// Standard models use "system" role
-			messages = append(messages, openai.SystemMessage(model.SystemPrompt()))
+			messages = append(messages, openai.SystemMessage(s))
 		}
 	}
-	messages = append(messages, openai.UserMessage(prompt))
+	if breakpoints && co.PromptCached() {
+		part := openAICachedTextPart(prompt)
+		messages = append(messages, openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{{OfText: &part}}))
+		cacheBreakpoint = true
+	} else {
+		messages = append(messages, openai.UserMessage(prompt))
+	}
 
 	// Build request parameters
 	params := openai.ChatCompletionNewParams{
@@ -1046,183 +1334,105 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *O1Mini:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *O1Pro:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *O3:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *O3Mini:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *O4Mini:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT5:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT5Mini:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT5Nano:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT5Pro:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT51:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT51Mini:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT51Nano:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT51Codex:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT51CodexMini:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT54Nano:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT54Mini:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT54:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT54Pro:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT55:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT55Pro:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT56Sol:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *GPT56Terra:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *GPT56Luna:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 	case *O3Pro:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
 	case *O1Preview:
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
-		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
 		}
 
 	// Generic models
@@ -1240,14 +1450,48 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 		if m.maxCompletionTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(m.maxCompletionTokens))
 		}
-		if m.reasoningEffort != "" {
-			params.ReasoningEffort = shared.ReasoningEffort(m.reasoningEffort)
-		}
+	}
+
+	// Thinking is applied once from a plan built outside the switch, where the
+	// effort used to be one hand-copied block per reasoning model type. It has
+	// exactly one place to go on this API -- reasoning_effort -- so the plan's
+	// budget, toggle and trace fields have nowhere to land here and are dropped
+	// with a note rather than guessed at. Chat completions has no thinking
+	// token budget, no boolean toggle and returns no trace; the reasoning
+	// object that carries all three is Responses-API only.
+	//
+	// A model whose ThinkingOptions were never touched produces a zero plan and
+	// leaves params exactly as built above, and a standard model carries no
+	// ThinkingOptions at all.
+	to := modelThinkingOptions(model)
+
+	// A dimension a per-model setter pinned is always on the wire, whatever the
+	// ladder says. The caller reached for an OpenAI-specific knob on an
+	// OpenAI-specific type -- including the generic OpenAIReasoningModel, whose
+	// whole job is to send what it was told, and including the effort every
+	// named reasoning constructor has always seeded -- so lingo forwards it and
+	// lets the API answer, exactly as it did before the portable surface existed.
+	dims := ModelThinkingDimensions(model) | oaiPinnedThinking(to)
+	plan := planThinking(to, dims, budgetRange{}, openAIEffortLadder(model.ModelName())...)
+	if plan.effort != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(plan.effort)
+	}
+
+	// OpenAI caches prompt prefixes on its own, so most models have no
+	// breakpoint to place; the GPT-5.6 family additionally accepts an explicit
+	// one, handled with the messages above. The partition key is accepted by
+	// every chat model and is meaningful even without Enable(). Models that
+	// carry no key leave params untouched.
+	if !co.Disabled() && co.Key() != "" {
+		params.PromptCacheKey = openai.String(co.Key())
 	}
 
 	c.logger.Debug().
 		Str("model", model.ModelName()).
 		Bool("is_reasoning_model", isReasoning).
+		Str("reasoning_effort", string(plan.effort)).
+		Str("thinking_translation", plan.translation()).
+		Bool("cache_breakpoint", cacheBreakpoint).
 		Msg("Making OpenAI API request")
 
 	// Make request with rate limit handling
@@ -1278,11 +1522,23 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 		Text:         choice.Message.Content,
 		Model:        resp.Model,
 		FinishReason: string(choice.FinishReason),
+		// OpenAI counts cached tokens inside prompt_tokens, so they are already
+		// part of the prompt total: promptIncludesCache is true. Reasoning
+		// tokens are the same shape on the completion side -- the API reports
+		// them as a breakdown of completion_tokens -- so they are already inside
+		// the completion total too.
+		//
+		// Reporting is unconditional: a reasoning model spends thinking tokens
+		// whether or not the caller configured anything.
 		Usage: TokenUsage{
 			PromptTokens:     int(resp.Usage.PromptTokens),
 			CompletionTokens: int(resp.Usage.CompletionTokens),
 			TotalTokens:      int(resp.Usage.TotalTokens),
-		},
+		}.withCache(
+			int(resp.Usage.PromptTokensDetails.CachedTokens),
+			int(resp.Usage.PromptTokensDetails.CacheWriteTokens),
+			true,
+		).withThinking(int(resp.Usage.CompletionTokensDetails.ReasoningTokens), true),
 		Metadata: map[string]string{
 			"provider":           "openai",
 			"model":              resp.Model,
@@ -1290,9 +1546,22 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 		},
 	}
 
-	// Add reasoning tokens to metadata if available
+	// The count now has a typed home in TokenUsage.ThinkingTokens; the metadata
+	// key it used to live under is kept for one release so existing readers keep
+	// working. Note the wire spelling differs from lingo's: this dialect calls
+	// them reasoning tokens, lingo calls the concept thinking.
+	//
+	// Deprecated: read Usage.ThinkingTokens instead of Metadata["reasoning_tokens"].
 	if resp.Usage.CompletionTokensDetails.ReasoningTokens > 0 {
 		response.Metadata["reasoning_tokens"] = fmt.Sprintf("%d", resp.Usage.CompletionTokensDetails.ReasoningTokens)
+	}
+
+	// Whatever lingo had to translate or drop to fit the caller's request onto
+	// this model's ladder, so a silent adaptation is never invisible. OpenAI
+	// returns no reasoning trace on chat completions, so GenerationResponse
+	// .Thinking stays empty here however much the model thought.
+	if s := plan.translation(); s != "" {
+		response.Metadata["thinking_translation"] = s
 	}
 
 	c.logger.Debug().
@@ -1301,6 +1570,8 @@ func (c *openAIClient) Generate(ctx context.Context, model Model, prompt string)
 		Int64("prompt_tokens", resp.Usage.PromptTokens).
 		Int64("completion_tokens", resp.Usage.CompletionTokens).
 		Int64("total_tokens", resp.Usage.TotalTokens).
+		Int("cache_read_tokens", response.Usage.CacheReadTokens).
+		Int("cache_write_tokens", response.Usage.CacheWriteTokens).
 		Msg("OpenAI generation completed")
 
 	return response, nil

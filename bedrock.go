@@ -2,6 +2,7 @@ package lingo
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
+	brtypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 )
 
 func init() {
@@ -55,8 +58,37 @@ func (c *BedrockConfig) rateLimitConfig() *RateLimitConfig { return c.RateLimite
 // SHARED OPTIONS (embedded in model structs)
 // ============================================================================
 
+// bedrockCacheOptions carries the prompt caching configuration. Bedrock has one
+// options struct per model family instead of a single shared one, so the
+// configuration lives here and every family embeds it; this one accessor is
+// what makes all Bedrock models satisfy CacheableModel. Only the Claude family
+// has a breakpoint to place -- elsewhere the setting is inert, which is the
+// documented behaviour for asking a provider for caching it cannot do.
+type bedrockCacheOptions struct {
+	cache CacheOptions
+}
+
+// CacheOptions returns the model's prompt caching configuration.
+func (o *bedrockCacheOptions) CacheOptions() *CacheOptions { return &o.cache }
+
+// bedrockThinkingOptions carries the thinking configuration. Like
+// bedrockCacheOptions it is a one-field struct the families embed, but only two
+// of them do: Claude, whose InvokeModel body is Anthropic's own and therefore has
+// a thinking field to fill in, and Nova, which reasons upstream but is wired to
+// nothing here (see the comment on buildConverseInput). Titan, Llama and Mistral
+// deliberately do not embed it, so those model types structurally cannot satisfy
+// ThinkingModel and no thinking knob can be handed to a model whose API has none.
+type bedrockThinkingOptions struct {
+	thinking ThinkingOptions
+}
+
+// ThinkingOptions returns the model's thinking configuration.
+func (o *bedrockThinkingOptions) ThinkingOptions() *ThinkingOptions { return &o.thinking }
+
 // bedrockClaudeOptions contains options for Claude models on Bedrock
 type bedrockClaudeOptions struct {
+	bedrockCacheOptions
+	bedrockThinkingOptions
 	maxTokens        int
 	temperature      float64
 	topP             float64
@@ -67,36 +99,142 @@ type bedrockClaudeOptions struct {
 
 // bedrockTitanOptions contains options for Amazon Titan models on Bedrock
 type bedrockTitanOptions struct {
+	bedrockCacheOptions
 	maxTokens    int
 	temperature  float64
 	topP         float64
 	systemPrompt string
 }
+
+// thinkingDimensions answers for a family whose request body has no thinking
+// field of any kind. Without it ModelThinkingDimensions would fall back to the
+// provider-wide answer and promise Titan a knob it has never had -- the models
+// cannot even carry the configuration, so there is nothing to be vague about.
+func (o *bedrockTitanOptions) thinkingDimensions() ThinkingDimension { return 0 }
 
 // bedrockNovaOptions contains options for Amazon Nova models on Bedrock
 type bedrockNovaOptions struct {
+	bedrockCacheOptions
+	bedrockThinkingOptions
 	maxTokens    int
 	temperature  float64
 	topP         float64
 	topK         int
 	systemPrompt string
 }
+
+// thinkingDimensions reports that lingo asks Nova for nothing. Nova's reasoning
+// config would have to ride in the Converse AdditionalModelRequestFields
+// document, whose key name for it is not modelled by bedrockruntime and could
+// not be verified from any pinned source, so the configuration is stored and
+// never sent. Answering 0 is what keeps ModelThinkingDimensions honest about it.
+func (o *bedrockNovaOptions) thinkingDimensions() ThinkingDimension { return 0 }
 
 // bedrockLlamaOptions contains options for Llama models on Bedrock
 type bedrockLlamaOptions struct {
+	bedrockCacheOptions
 	maxTokens    int
 	temperature  float64
 	topP         float64
 	systemPrompt string
 }
 
+// thinkingDimensions answers for a family whose request body has no thinking
+// field of any kind. See bedrockTitanOptions.thinkingDimensions.
+func (o *bedrockLlamaOptions) thinkingDimensions() ThinkingDimension { return 0 }
+
 // bedrockMistralOptions contains options for Mistral models on Bedrock
 type bedrockMistralOptions struct {
+	bedrockCacheOptions
 	maxTokens    int
 	temperature  float64
 	topP         float64
 	topK         int
 	systemPrompt string
+}
+
+// thinkingDimensions answers for a family whose request body has no thinking
+// field of any kind. See bedrockTitanOptions.thinkingDimensions.
+func (o *bedrockMistralOptions) thinkingDimensions() ThinkingDimension { return 0 }
+
+// ============================================================================
+// CLAUDE THINKING ON BEDROCK
+// ============================================================================
+//
+// The Claude models on Bedrock are the models Anthropic serves directly, so
+// which thinking knobs they honour is the same question anthropic.go already
+// answers -- by API generation, resolved from the model id. The only difference
+// is the id itself, which Bedrock decorates with a cross-region scope and a
+// vendor prefix, and the dialect lingo can write into the InvokeModel body.
+//
+// That dialect is narrower than the first-party one. InvokeModel forwards the
+// body to the vendor verbatim, which is why the fixed thinking config lands here
+// in Anthropic's own spelling, exactly as the cache breakpoint does. But the two
+// newer shapes -- the adaptive thinking config and output_config.effort -- could
+// not be verified as accepted on this path from any pinned source, and a body
+// field Bedrock does not know is a 400, not a silent drop. So lingo writes the
+// one shape Bedrock has taken since Claude 3.7 and no other, and the eras that
+// accept nothing else report no depth knob at all rather than sending a guess.
+
+// bedrockScopes are the cross-region inference prefixes a Bedrock model id can
+// carry. They say where the request may be routed, not which model it is.
+var bedrockScopes = []string{"us.", "eu.", "apac.", "jp.", "au.", "ca.", "sa.", "global."}
+
+// bedrockStripScope removes a cross-region inference prefix from a model id.
+func bedrockStripScope(modelID string) string {
+	for _, scope := range bedrockScopes {
+		if strings.HasPrefix(modelID, scope) {
+			return strings.TrimPrefix(modelID, scope)
+		}
+	}
+	return modelID
+}
+
+// bedrockClaudeThinkingEra resolves a Bedrock model id to the Claude generation
+// whose thinking dialect it speaks, by reducing the id to the upstream Anthropic
+// one the era table in anthropic.go is written against:
+//
+//	us.anthropic.claude-opus-4-6-v1 -> claude-opus-4-6-v1 -> 4.6
+//
+// A non-Anthropic id reduces to something that starts with neither "claude-" nor
+// a known prefix, so it lands on the era with no thinking field at all.
+func bedrockClaudeThinkingEra(modelID string) anthropicThinkingEra {
+	return anthropicThinkingEraFor(strings.TrimPrefix(bedrockStripScope(modelID), "anthropic."))
+}
+
+// bedrockEraDimensions reports which thinking knobs lingo can actually ask a
+// Bedrock Claude generation for, which is a subset of what the model honours
+// first-party:
+//
+//	3.5 and earlier   nothing: the API has no thinking field
+//	3.7 - 4.5         toggle | budget: the fixed thinking config, as always
+//	4.6               toggle | budget: the fixed config is deprecated upstream
+//	                  but still accepted, and it is the only one lingo can write
+//	4.7, 4.8, 5.x     toggle only: a fixed budget is rejected, so thinking can be
+//	                  switched off but its depth cannot be set from here
+//	Fable 5           nothing: thinking is server-side and any thinking config
+//	                  is a 400
+//
+// Every era that reasons reports its trace, whether or not lingo asked for it.
+func bedrockEraDimensions(e anthropicThinkingEra) ThinkingDimension {
+	switch e {
+	case anthropicThinkingEraBudget, anthropicThinkingEraAdaptiveBudget:
+		return ThinkingCanToggle | ThinkingCanSetBudget | ThinkingCanReportTrace
+	case anthropicThinkingEraAdaptive, anthropicThinkingEraDefaultOn:
+		return ThinkingCanToggle | ThinkingCanReportTrace
+	case anthropicThinkingEraAlwaysOn:
+		return ThinkingCanReportTrace
+	default:
+		return 0
+	}
+}
+
+// bedrockThinkingDimensions answers ModelThinkingDimensions for one Bedrock
+// model, resolved from the model id so that a zero-value literal and the generic
+// BedrockModel both get the right answer without a constructor having stored
+// anything.
+func bedrockThinkingDimensions(modelID string) ThinkingDimension {
+	return bedrockEraDimensions(bedrockClaudeThinkingEra(modelID))
 }
 
 // ============================================================================
@@ -111,6 +249,9 @@ func (m *BedrockClaude35Sonnet) ModelName() string {
 }
 func (m *BedrockClaude35Sonnet) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaude35Sonnet) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaude35Sonnet) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaude35Sonnet) WithMaxTokens(n int) *BedrockClaude35Sonnet {
 	m.maxTokens = n
@@ -142,6 +283,9 @@ type BedrockClaude35Haiku struct{ bedrockClaudeOptions }
 func (m *BedrockClaude35Haiku) ModelName() string      { return "anthropic.claude-3-5-haiku-20241022-v1:0" }
 func (m *BedrockClaude35Haiku) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaude35Haiku) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaude35Haiku) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaude35Haiku) WithMaxTokens(n int) *BedrockClaude35Haiku { m.maxTokens = n; return m }
 func (m *BedrockClaude35Haiku) WithTemperature(t float64) *BedrockClaude35Haiku {
@@ -172,6 +316,9 @@ func (m *BedrockClaude37Sonnet) ModelName() string {
 }
 func (m *BedrockClaude37Sonnet) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaude37Sonnet) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaude37Sonnet) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaude37Sonnet) WithMaxTokens(n int) *BedrockClaude37Sonnet {
 	m.maxTokens = n
@@ -203,6 +350,9 @@ type BedrockClaudeSonnet4 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeSonnet4) ModelName() string      { return "anthropic.claude-sonnet-4-20250514-v1:0" }
 func (m *BedrockClaudeSonnet4) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeSonnet4) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeSonnet4) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeSonnet4) WithMaxTokens(n int) *BedrockClaudeSonnet4 {
 	m.maxTokens = n
@@ -234,6 +384,9 @@ type BedrockClaudeOpus4 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeOpus4) ModelName() string      { return "anthropic.claude-opus-4-20250514-v1:0" }
 func (m *BedrockClaudeOpus4) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeOpus4) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeOpus4) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeOpus4) WithMaxTokens(n int) *BedrockClaudeOpus4 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus4) WithTemperature(t float64) *BedrockClaudeOpus4 {
@@ -264,6 +417,9 @@ func (m *BedrockClaudeSonnet45) ModelName() string {
 }
 func (m *BedrockClaudeSonnet45) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeSonnet45) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeSonnet45) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeSonnet45) WithMaxTokens(n int) *BedrockClaudeSonnet45 {
 	m.maxTokens = n
@@ -297,6 +453,9 @@ func (m *BedrockClaudeOpus45) ModelName() string {
 }
 func (m *BedrockClaudeOpus45) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeOpus45) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeOpus45) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeOpus45) WithMaxTokens(n int) *BedrockClaudeOpus45 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus45) WithTemperature(t float64) *BedrockClaudeOpus45 {
@@ -327,6 +486,9 @@ func (m *BedrockClaudeHaiku45) ModelName() string {
 }
 func (m *BedrockClaudeHaiku45) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeHaiku45) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeHaiku45) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeHaiku45) WithMaxTokens(n int) *BedrockClaudeHaiku45 {
 	m.maxTokens = n
@@ -358,6 +520,9 @@ type BedrockClaudeOpus46 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeOpus46) ModelName() string      { return "anthropic.claude-opus-4-6-v1" }
 func (m *BedrockClaudeOpus46) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeOpus46) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeOpus46) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeOpus46) WithMaxTokens(n int) *BedrockClaudeOpus46 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus46) WithTemperature(t float64) *BedrockClaudeOpus46 {
@@ -386,6 +551,9 @@ type BedrockClaudeSonnet46 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeSonnet46) ModelName() string      { return "anthropic.claude-sonnet-4-6" }
 func (m *BedrockClaudeSonnet46) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeSonnet46) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeSonnet46) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeSonnet46) WithMaxTokens(n int) *BedrockClaudeSonnet46 {
 	m.maxTokens = n
@@ -419,6 +587,9 @@ type BedrockClaudeOpus47 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeOpus47) ModelName() string      { return "anthropic.claude-opus-4-7" }
 func (m *BedrockClaudeOpus47) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeOpus47) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeOpus47) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeOpus47) WithMaxTokens(n int) *BedrockClaudeOpus47 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus47) WithSystemPrompt(s string) *BedrockClaudeOpus47 {
@@ -442,6 +613,9 @@ type BedrockClaudeOpus48 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeOpus48) ModelName() string      { return "anthropic.claude-opus-4-8" }
 func (m *BedrockClaudeOpus48) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeOpus48) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeOpus48) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeOpus48) WithMaxTokens(n int) *BedrockClaudeOpus48 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus48) WithSystemPrompt(s string) *BedrockClaudeOpus48 {
@@ -465,6 +639,9 @@ type BedrockClaudeFable5 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeFable5) ModelName() string      { return "anthropic.claude-fable-5" }
 func (m *BedrockClaudeFable5) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeFable5) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeFable5) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeFable5) WithMaxTokens(n int) *BedrockClaudeFable5 { m.maxTokens = n; return m }
 func (m *BedrockClaudeFable5) WithSystemPrompt(s string) *BedrockClaudeFable5 {
@@ -489,6 +666,9 @@ type BedrockClaudeOpus5 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeOpus5) ModelName() string      { return "anthropic.claude-opus-5" }
 func (m *BedrockClaudeOpus5) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeOpus5) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeOpus5) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeOpus5) WithMaxTokens(n int) *BedrockClaudeOpus5 { m.maxTokens = n; return m }
 func (m *BedrockClaudeOpus5) WithSystemPrompt(s string) *BedrockClaudeOpus5 {
@@ -515,6 +695,9 @@ type BedrockClaudeSonnet5 struct{ bedrockClaudeOptions }
 func (m *BedrockClaudeSonnet5) ModelName() string      { return "anthropic.claude-sonnet-5" }
 func (m *BedrockClaudeSonnet5) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaudeSonnet5) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaudeSonnet5) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaudeSonnet5) WithMaxTokens(n int) *BedrockClaudeSonnet5 { m.maxTokens = n; return m }
 func (m *BedrockClaudeSonnet5) WithSystemPrompt(s string) *BedrockClaudeSonnet5 {
@@ -536,6 +719,9 @@ type BedrockClaude3Sonnet struct{ bedrockClaudeOptions }
 func (m *BedrockClaude3Sonnet) ModelName() string      { return "anthropic.claude-3-sonnet-20240229-v1:0" }
 func (m *BedrockClaude3Sonnet) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaude3Sonnet) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaude3Sonnet) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaude3Sonnet) WithMaxTokens(n int) *BedrockClaude3Sonnet { m.maxTokens = n; return m }
 func (m *BedrockClaude3Sonnet) WithTemperature(t float64) *BedrockClaude3Sonnet {
@@ -564,6 +750,9 @@ type BedrockClaude3Haiku struct{ bedrockClaudeOptions }
 func (m *BedrockClaude3Haiku) ModelName() string      { return "anthropic.claude-3-haiku-20240307-v1:0" }
 func (m *BedrockClaude3Haiku) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaude3Haiku) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaude3Haiku) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaude3Haiku) WithMaxTokens(n int) *BedrockClaude3Haiku { m.maxTokens = n; return m }
 func (m *BedrockClaude3Haiku) WithTemperature(t float64) *BedrockClaude3Haiku {
@@ -592,6 +781,9 @@ type BedrockClaude3Opus struct{ bedrockClaudeOptions }
 func (m *BedrockClaude3Opus) ModelName() string      { return "anthropic.claude-3-opus-20240229-v1:0" }
 func (m *BedrockClaude3Opus) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockClaude3Opus) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockClaude3Opus) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockClaude3Opus) WithMaxTokens(n int) *BedrockClaude3Opus { m.maxTokens = n; return m }
 func (m *BedrockClaude3Opus) WithTemperature(t float64) *BedrockClaude3Opus {
@@ -1124,6 +1316,12 @@ func NewBedrockMistralLarge2407() *BedrockMistralLarge2407 {
 // cross-region inference profile IDs (e.g. "us.anthropic.claude-opus-4-8"),
 // which many newer models require outside their home regions.
 type BedrockModel struct {
+	bedrockCacheOptions
+	// The escape hatch carries thinking configuration for the same reason it
+	// carries caching configuration: it is the only way to reach a Claude that
+	// shipped after this build. What it sends is decided by the model id it was
+	// handed, so a Titan or Llama id stores the configuration and sends nothing.
+	bedrockThinkingOptions
 	modelID      string
 	maxTokens    int
 	temperature  float64
@@ -1136,6 +1334,9 @@ type BedrockModel struct {
 func (m *BedrockModel) ModelName() string      { return m.modelID }
 func (m *BedrockModel) Provider() ProviderType { return ProviderBedrock }
 func (m *BedrockModel) SystemPrompt() string   { return m.systemPrompt }
+func (m *BedrockModel) thinkingDimensions() ThinkingDimension {
+	return bedrockThinkingDimensions(m.ModelName())
+}
 
 func (m *BedrockModel) WithMaxTokens(n int) *BedrockModel       { m.maxTokens = n; return m }
 func (m *BedrockModel) WithTemperature(t float64) *BedrockModel { m.temperature = t; return m }
@@ -1216,20 +1417,65 @@ func newBedrockClient(bedrockCfg *BedrockConfig, logger Logger) (*bedrockClient,
 
 // Bedrock request/response types for different model families
 
-// Claude Messages API format
+// Claude Messages API format.
+//
+// System and Content are typed as any because Anthropic accepts either a plain
+// string or an array of content blocks, and only the block form can carry a
+// cache breakpoint. They hold a string unless caching is on, so an untouched
+// model marshals byte for byte the body it always did.
 type bedrockClaudeRequest struct {
 	AnthropicVersion string                 `json:"anthropic_version"`
 	MaxTokens        int                    `json:"max_tokens"`
 	Messages         []bedrockClaudeMessage `json:"messages"`
-	System           string                 `json:"system,omitempty"`
+	System           any                    `json:"system,omitempty"`
 	Temperature      float64                `json:"temperature,omitempty"`
 	TopP             float64                `json:"top_p,omitempty"`
 	TopK             int                    `json:"top_k,omitempty"`
+	// Thinking is a pointer with omitempty for the same reason System is typed
+	// any: a model whose ThinkingOptions were never touched marshals byte for
+	// byte the body it always did.
+	Thinking *bedrockClaudeThinking `json:"thinking,omitempty"`
+}
+
+// bedrockClaudeThinking is Anthropic's thinking config in its own spelling,
+// which is what the InvokeModel body speaks. Only the two shapes Bedrock has
+// carried since Claude 3.7 are written here: {"type":"enabled","budget_tokens":N}
+// and {"type":"disabled"}. BudgetTokens has omitempty so the disabled form is
+// exactly those two words -- the API requires a budget with "enabled" and
+// rejects one with "disabled".
+type bedrockClaudeThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
 }
 
 type bedrockClaudeMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
+}
+
+// bedrockClaudeText is one text content block. InvokeModel forwards the body to
+// the vendor verbatim, so a Bedrock cache breakpoint is written in Anthropic's
+// own dialect rather than as a Converse cachePoint.
+type bedrockClaudeText struct {
+	Type         string               `json:"type"`
+	Text         string               `json:"text"`
+	CacheControl *bedrockCacheControl `json:"cache_control,omitempty"`
+}
+
+type bedrockCacheControl struct {
+	Type string `json:"type"`
+	TTL  string `json:"ttl,omitempty"`
+}
+
+// bedrockCacheBlock wraps text in a content block ending a cached prefix.
+// CacheTTLDefault leaves ttl unset, which the API reads as 5 minutes.
+func bedrockCacheBlock(text string, ttl CacheTTL) []bedrockClaudeText {
+	cc := &bedrockCacheControl{Type: "ephemeral"}
+	switch ttl {
+	case CacheTTL5m, CacheTTL1h:
+		cc.TTL = string(ttl)
+	}
+	return []bedrockClaudeText{{Type: "text", Text: text, CacheControl: cc}}
 }
 
 type bedrockClaudeResponse struct {
@@ -1238,14 +1484,48 @@ type bedrockClaudeResponse struct {
 	Usage      bedrockClaudeUsage     `json:"usage"`
 }
 
+// bedrockClaudeContent is one block of the answer. It is response-only -- the
+// request builds bedrockClaudeText -- so the thinking fields cost no request
+// bytes. Without them a {"type":"thinking"} block unmarshals into an empty
+// struct and the trace is lost before anything gets a chance to read it.
 type bedrockClaudeContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	// Thinking is the reasoning text of a "thinking" block, and Signature the
+	// token that authenticates it for replay on a later turn.
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature"`
+	// Data is the encrypted payload of a "redacted_thinking" block: the model
+	// reasoned, but the trace came back opaque.
+	Data string `json:"data"`
 }
 
 type bedrockClaudeUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int                  `json:"input_tokens"`
+	OutputTokens             int                  `json:"output_tokens"`
+	CacheCreationInputTokens int                  `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int                  `json:"cache_read_input_tokens"`
+	CacheCreation            bedrockCacheCreation `json:"cache_creation"`
+	// OutputTokensDetails is Anthropic's thinking-token breakdown. Bedrock is not
+	// known to return it -- neither the Claude body nor the Converse TokenUsage
+	// has carried one at any version this library has been built against -- so
+	// this is a read-if-present: the counter reports 0 rather than lingo
+	// pretending to a number it never received.
+	OutputTokensDetails bedrockClaudeOutputTokensDetails `json:"output_tokens_details"`
+}
+
+// bedrockClaudeOutputTokensDetails mirrors Anthropic's usage.output_tokens_details.
+// thinking_tokens is documented as always <= output_tokens, so it is a subset of
+// the completion total rather than an addition to it.
+type bedrockClaudeOutputTokensDetails struct {
+	ThinkingTokens int `json:"thinking_tokens"`
+}
+
+// bedrockCacheCreation is the per-TTL split of the cache write, reported only
+// by model versions new enough to bill the two lifetimes differently.
+type bedrockCacheCreation struct {
+	Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
 }
 
 // Titan format
@@ -1348,13 +1628,7 @@ type bedrockMistralOutput struct {
 // newer Bedrock models are only invokable through such profiles, so the prefix
 // is stripped before matching the provider.
 func getModelFamily(modelID string) string {
-	id := modelID
-	for _, scope := range []string{"us.", "eu.", "apac.", "jp.", "au.", "ca.", "sa.", "global."} {
-		if strings.HasPrefix(id, scope) {
-			id = strings.TrimPrefix(id, scope)
-			break
-		}
-	}
+	id := bedrockStripScope(modelID)
 	switch {
 	case strings.HasPrefix(id, "anthropic."):
 		return "claude"
@@ -1370,6 +1644,26 @@ func getModelFamily(modelID string) string {
 		return "unknown"
 	}
 }
+
+// bedrockUsesConverse reports whether a family is served by the Converse API
+// instead of InvokeModel. Only Nova is: it is the one family besides Claude
+// that supports prompt caching, and unlike Claude it reports no cache counters
+// on the InvokeModel response, so Converse is the only place its cache
+// accounting exists. Claude keeps its own dialect, which already carries a
+// richer per-TTL write split; Llama and Mistral support no caching at all and
+// would have their prompt templating silently rewritten by Converse; Titan
+// Text is past end-of-life on Bedrock.
+//
+// Nova's InvokeModel body does accept a cachePoint block, so the marker alone
+// is not the reason for the move -- the response is. AWS documents
+// cacheReadInputTokens, cacheWriteInputTokens and cacheDetails only on the
+// Converse response, so placing a cachePoint on InvokeModel would cache
+// without ever being able to report that it did.
+//
+// Flipping this to false is the complete rollback: buildNovaRequest and
+// parseNovaResponse are deliberately kept, so the InvokeModel path for Nova
+// still works and nothing else has to be restored.
+func bedrockUsesConverse(family string) bool { return family == "nova" }
 
 // Generate generates text using AWS Bedrock
 func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string) (*GenerationResponse, error) {
@@ -1392,18 +1686,19 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 		modelFamily = getModelFamily(modelID)
 	}
 
-	c.logger.Debug().
-		Str("model", modelID).
-		Str("family", modelFamily).
-		Msg("Making Bedrock API request")
+	if bedrockUsesConverse(modelFamily) {
+		return c.generateConverse(ctx, model, prompt, modelID, modelFamily)
+	}
 
 	var body []byte
+	var cacheBreakpoint bool
+	var thinking thinkingPlan
 	var err error
 
 	// Build request based on model family
 	switch modelFamily {
 	case "claude":
-		body, err = c.buildClaudeRequest(model, prompt)
+		body, cacheBreakpoint, thinking, err = c.buildClaudeRequest(model, prompt)
 	case "nova":
 		body, err = c.buildNovaRequest(model, prompt)
 	case "titan":
@@ -1418,6 +1713,16 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 	if err != nil {
 		return nil, err
 	}
+
+	// Logged after the body is built, so cache_breakpoint can report the marker
+	// the request actually carries rather than the one that was asked for, and
+	// thinking_translation whatever had to be adapted to get there.
+	c.logger.Debug().
+		Str("model", modelID).
+		Str("family", modelFamily).
+		Bool("cache_breakpoint", cacheBreakpoint).
+		Str("thinking_translation", thinking.translation()).
+		Msg("Making Bedrock API request")
 
 	// Make request with rate limit handling
 	var output *bedrockruntime.InvokeModelOutput
@@ -1457,17 +1762,33 @@ func (c *bedrockClient) Generate(ctx context.Context, model Model, prompt string
 		return nil, err
 	}
 
+	// Whatever lingo had to translate or drop to fit the caller's request onto
+	// this model's dialect, so a silent adaptation is never invisible. Only the
+	// Claude path builds a plan; everywhere else this is empty.
+	if s := thinking.translation(); s != "" {
+		response.Metadata["thinking_translation"] = s
+	}
+
 	c.logger.Debug().
 		Str("model", modelID).
 		Int("prompt_tokens", response.Usage.PromptTokens).
 		Int("completion_tokens", response.Usage.CompletionTokens).
 		Int("total_tokens", response.Usage.TotalTokens).
+		Int("cache_read_tokens", response.Usage.CacheReadTokens).
+		Int("cache_write_tokens", response.Usage.CacheWriteTokens).
+		Bool("has_thinking", response.Thinking != "").
 		Msg("Bedrock generation completed")
 
 	return response, nil
 }
 
-func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, error) {
+// buildClaudeRequest also reports whether a cache breakpoint was actually
+// placed, which is not the same as the caller having asked for one: enabling
+// caching on a model with no system prompt marks nothing. It returns the
+// thinking plan for the same reason: what lingo had to translate or drop to fit
+// the request onto this model's dialect has to reach the response metadata, and
+// the decision cannot be made before max_tokens is known.
+func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, bool, thinkingPlan, error) {
 	req := bedrockClaudeRequest{
 		AnthropicVersion: "bedrock-2023-05-31",
 		MaxTokens:        4096,
@@ -1742,7 +2063,83 @@ func (c *bedrockClient) buildClaudeRequest(model Model, prompt string) ([]byte, 
 		}
 	}
 
-	return json.Marshal(req)
+	// Thinking is opt-in and, like caching, is applied once from a plan built
+	// outside the switch -- but unlike caching it cannot be applied uniformly,
+	// because the wire shape below belongs to some Claude generations and not
+	// others. A model whose ThinkingOptions were never touched produces a zero
+	// plan and leaves req exactly as built above.
+	era := bedrockClaudeThinkingEra(model.ModelName())
+	dims := bedrockEraDimensions(era)
+
+	// budget_tokens must be >= 1024 and strictly below max_tokens. A request whose
+	// max_tokens leaves no room for a legal budget has no budget knob at all, so
+	// the depth is translated or dropped rather than sent to be rejected.
+	br := budgetRange{min: anthropicMinThinkingBudget, max: req.MaxTokens - 1}
+	if br.max < br.min {
+		br = budgetRange{}
+		dims &^= ThinkingCanSetBudget
+	}
+
+	// No effort ladder is passed: output_config is not written on this path, so a
+	// caller's effort is translated into a token budget for the generations that
+	// take one and dropped, with a note, for the ones that do not.
+	plan := planThinking(modelThinkingOptions(model), dims, br)
+
+	switch {
+	case plan.disable:
+		req.Thinking = &bedrockClaudeThinking{Type: "disabled"}
+	case plan.budget > 0:
+		req.Thinking = &bedrockClaudeThinking{Type: "enabled", BudgetTokens: plan.budget}
+	case plan.enable || plan.dynamic:
+		// Thinking was asked for without a depth lingo can name. On the
+		// generations that speak in fixed budgets it has to become one, since the
+		// adaptive config is not written here.
+		switch {
+		case dims.Has(ThinkingCanSetBudget):
+			// The window above already guarantees a positive budget here. The
+			// guard is what keeps that guarantee cheap to hold: "enabled" with no
+			// budget_tokens is a body the API rejects, so a zero means no thinking
+			// config at all rather than a malformed one.
+			if n := ThinkingBudgetForEffort(ThinkingEffortHigh, br.min, br.max); n > 0 {
+				plan.note("thinking enabled as a fixed budget of %d tokens: lingo sends no adaptive thinking config on Bedrock", n)
+				req.Thinking = &bedrockClaudeThinking{Type: "enabled", BudgetTokens: n}
+			} else {
+				plan.note("thinking enabled but dropped: max_tokens leaves no room for a legal budget")
+			}
+		case era == anthropicThinkingEraBudget || era == anthropicThinkingEraAdaptiveBudget:
+			// The generation does take a budget; this request has no room for a
+			// legal one, which is why the dimension was withdrawn above.
+			plan.note("thinking enabled but dropped: max_tokens leaves no room for a legal budget")
+		case era == anthropicThinkingEraDefaultOn:
+			// Claude 5 reasons unless told not to, so asking for thinking is a
+			// no-op that changes no bytes rather than something to translate.
+		default:
+			plan.note("thinking enabled but dropped: this generation takes only an adaptive thinking config, which lingo does not send on Bedrock")
+		}
+	}
+
+	// Prompt caching is opt-in and works the same for every Claude type, so it
+	// sits outside the switch. The breakpoint only fits a content block, so the
+	// strings assigned above are widened to block arrays -- and only then, which
+	// leaves an untouched model's body unchanged.
+	co := modelCacheOptions(model)
+	var breakpoint bool
+	if co.SystemPromptCached() {
+		if system, ok := req.System.(string); ok && system != "" {
+			req.System = bedrockCacheBlock(system, co.TTL())
+			breakpoint = true
+		}
+	}
+	if co.PromptCached() && len(req.Messages) > 0 {
+		last := &req.Messages[len(req.Messages)-1]
+		if text, ok := last.Content.(string); ok && text != "" {
+			last.Content = bedrockCacheBlock(text, co.TTL())
+			breakpoint = true
+		}
+	}
+
+	body, err := json.Marshal(req)
+	return body, breakpoint, plan, err
 }
 
 func (c *bedrockClient) buildNovaRequest(model Model, prompt string) ([]byte, error) {
@@ -1787,6 +2184,148 @@ func (c *bedrockClient) buildNovaRequest(model Model, prompt string) ([]byte, er
 	}
 
 	return json.Marshal(req)
+}
+
+// buildConverseInput assembles a Converse request. It is pure so that the wire
+// shape can be asserted in a test without a network stub, the same property
+// the build*Request functions have. Like buildClaudeRequest it also reports
+// whether a cache point was actually appended, not merely asked for.
+func (c *bedrockClient) buildConverseInput(model Model, prompt, modelID string) (*bedrockruntime.ConverseInput, bool) {
+	in := &bedrockruntime.ConverseInput{
+		ModelId:         aws.String(modelID),
+		InferenceConfig: &brtypes.InferenceConfiguration{MaxTokens: aws.Int32(4096)},
+		Messages: []brtypes.Message{{
+			Role:    brtypes.ConversationRoleUser,
+			Content: []brtypes.ContentBlock{&brtypes.ContentBlockMemberText{Value: prompt}},
+		}},
+	}
+
+	if s := model.SystemPrompt(); s != "" {
+		in.System = []brtypes.SystemContentBlock{&brtypes.SystemContentBlockMemberText{Value: s}}
+	}
+
+	// Mirrors buildNovaRequest's applyOpts closure. InferenceConfiguration
+	// carries no TopK, so it rides in AdditionalModelRequestFields under Nova's
+	// own inferenceConfig path.
+	var topK int
+	applyOpts := func(maxTokens int, temperature, topP float64, k int) {
+		if maxTokens > 0 {
+			in.InferenceConfig.MaxTokens = aws.Int32(int32(maxTokens))
+		}
+		if temperature > 0 {
+			in.InferenceConfig.Temperature = aws.Float32(float32(temperature))
+		}
+		if topP > 0 {
+			in.InferenceConfig.TopP = aws.Float32(float32(topP))
+		}
+		topK = k
+	}
+
+	switch m := model.(type) {
+	case *BedrockNovaMicro:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	case *BedrockNovaLite:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	case *BedrockNovaPro:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	case *BedrockNovaPremier:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	case *BedrockModel:
+		applyOpts(m.maxTokens, m.temperature, m.topP, m.topK)
+	}
+	if topK > 0 {
+		in.AdditionalModelRequestFields = document.NewLazyDocument(
+			map[string]any{"inferenceConfig": map[string]any{"topK": topK}})
+	}
+
+	// Nova's thinking configuration is deliberately not written here. Converse
+	// models no reasoning request field -- InferenceConfiguration is max tokens,
+	// stop sequences, temperature and top-p, and nothing in bedrockruntime models
+	// a reasoning config -- so it could only ride in the schemaless
+	// AdditionalModelRequestFields document, and the key Nova expects there could
+	// not be verified from any pinned source. A guessed key is a 400, not a silent
+	// drop, so a Nova model stores whatever thinking configuration it was given
+	// and sends none of it; bedrockNovaOptions.thinkingDimensions reports 0 so
+	// that ModelThinkingDimensions says so before the request is ever made.
+	//
+	// Wiring it up is a one-line change here plus a dimension in that method, but
+	// note the hazard: the assignment above replaces the whole document, so a
+	// second key has to be merged into one accumulated map or topK regresses.
+
+	// Caching is opt-in, so a cache point is appended only when asked for.
+	// Nova accepts checkpoints in system and messages, not in tools.
+	co := modelCacheOptions(model)
+	var breakpoint bool
+	if co.SystemPromptCached() && len(in.System) > 0 {
+		in.System = append(in.System, &brtypes.SystemContentBlockMemberCachePoint{
+			Value: bedrockCachePoint(co.TTL()),
+		})
+		breakpoint = true
+	}
+	if co.PromptCached() {
+		last := &in.Messages[len(in.Messages)-1]
+		last.Content = append(last.Content, &brtypes.ContentBlockMemberCachePoint{
+			Value: bedrockCachePoint(co.TTL()),
+		})
+		breakpoint = true
+	}
+
+	return in, breakpoint
+}
+
+// bedrockCachePoint builds a Converse cache checkpoint. The ttl is deliberately
+// dropped: Nova, the only family routed through Converse, documents a 5 minute
+// lifetime only, and the zero Ttl means exactly that -- so a 1h request is
+// clamped away rather than rejected, which is the documented behaviour for
+// asking a provider for a lifetime it does not model. The parameter stays so
+// that a family which does model extended TTLs has one place to change.
+func bedrockCachePoint(ttl CacheTTL) brtypes.CachePointBlock {
+	_ = ttl
+	return brtypes.CachePointBlock{Type: brtypes.CachePointTypeDefault}
+}
+
+// generateConverse runs a request through the Converse API. It reproduces the
+// request log, error wrapping and completion log of the InvokeModel path in
+// Generate, so an operator's log output and error strings do not move.
+func (c *bedrockClient) generateConverse(ctx context.Context, model Model, prompt, modelID, family string) (*GenerationResponse, error) {
+	in, cacheBreakpoint := c.buildConverseInput(model, prompt, modelID)
+
+	c.logger.Debug().
+		Str("model", modelID).
+		Str("family", family).
+		Bool("cache_breakpoint", cacheBreakpoint).
+		Msg("Making Bedrock API request")
+
+	var output *bedrockruntime.ConverseOutput
+	err := c.rateLimiter.Execute(ctx, func() error {
+		var reqErr error
+		output, reqErr = c.client.Converse(ctx, in)
+		return reqErr
+	})
+	if err != nil {
+		c.logger.Error().
+			Err(err).
+			Str("model", modelID).
+			Str("prompt_preview", truncateString(prompt, 100)).
+			Msg("Bedrock generation failed")
+		return nil, fmt.Errorf("bedrock generation failed: %w", err)
+	}
+
+	response, err := c.parseConverseOutput(output, modelID, family)
+	if err != nil {
+		return nil, err
+	}
+
+	c.logger.Debug().
+		Str("model", modelID).
+		Int("prompt_tokens", response.Usage.PromptTokens).
+		Int("completion_tokens", response.Usage.CompletionTokens).
+		Int("total_tokens", response.Usage.TotalTokens).
+		Int("cache_read_tokens", response.Usage.CacheReadTokens).
+		Int("cache_write_tokens", response.Usage.CacheWriteTokens).
+		Msg("Bedrock generation completed")
+
+	return response, nil
 }
 
 func (c *bedrockClient) buildTitanRequest(model Model, prompt string) ([]byte, error) {
@@ -2068,28 +2607,80 @@ func (c *bedrockClient) parseClaudeResponse(body []byte, modelID string) (*Gener
 		return nil, fmt.Errorf("no content in Claude response")
 	}
 
-	var text string
+	// Extract the answer and the reasoning trace. Both accumulate: a response is
+	// a list of blocks, and once thinking is on it routinely arrives as several
+	// of each.
+	var text, thinkingText, thinkingSignature, redactedThinking string
 	for _, content := range resp.Content {
-		if content.Type == "text" {
+		switch content.Type {
+		case "text":
 			text += content.Text
+		case "thinking":
+			thinkingText += content.Thinking
+			// The signature authenticates the block for replay on a later turn.
+			// A multi-block response has one per block and Metadata holds one
+			// string, so this is the last of them; faithful replay needs a typed
+			// content API, which lingo's single-turn Generate does not have.
+			if content.Signature != "" {
+				thinkingSignature = content.Signature
+			}
+		case "redacted_thinking":
+			// The model reasoned but the trace came back encrypted. It is opaque
+			// to the caller and useful only for replay, so it stays out of
+			// Thinking and rides in metadata.
+			redactedThinking += content.Data
 		}
 	}
 
-	return &GenerationResponse{
+	result := &GenerationResponse{
 		Text:         text,
+		Thinking:     thinkingText,
 		Model:        modelID,
 		FinishReason: resp.StopReason,
+		// The Claude body speaks Anthropic's dialect, which reports cache tokens
+		// alongside input_tokens rather than inside it, so withCache folds them
+		// back into the prompt total. Thinking tokens are the other way round --
+		// Anthropic documents thinking_tokens as always <= output_tokens -- and
+		// stay 0 here anyway, because Bedrock is not known to report them.
 		Usage: TokenUsage{
 			PromptTokens:     resp.Usage.InputTokens,
 			CompletionTokens: resp.Usage.OutputTokens,
 			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
-		},
+		}.withCache(resp.Usage.CacheReadInputTokens, resp.Usage.CacheCreationInputTokens, false).
+			withThinking(resp.Usage.OutputTokensDetails.ThinkingTokens, true),
 		Metadata: map[string]string{
 			"provider": "bedrock",
 			"model":    modelID,
 			"family":   "claude",
 		},
-	}, nil
+	}
+
+	// The trace now has a typed home in GenerationResponse.Thinking; the metadata
+	// key the Anthropic provider has always mirrored it into is written here too,
+	// so a reader that already handles first-party Claude handles Bedrock Claude
+	// without a second code path.
+	//
+	// Deprecated: read GenerationResponse.Thinking instead of Metadata["thinking"].
+	if thinkingText != "" {
+		result.Metadata["thinking"] = thinkingText
+	}
+	if thinkingSignature != "" {
+		result.Metadata["thinking_signature"] = thinkingSignature
+	}
+	if redactedThinking != "" {
+		result.Metadata["thinking_redacted"] = redactedThinking
+	}
+
+	// Bedrock bills the two cache lifetimes differently and reports the split;
+	// it does not fit two counters, so it rides along as metadata.
+	if n := resp.Usage.CacheCreation.Ephemeral5mInputTokens; n > 0 {
+		result.Metadata["cache_write_tokens_5m"] = fmt.Sprintf("%d", n)
+	}
+	if n := resp.Usage.CacheCreation.Ephemeral1hInputTokens; n > 0 {
+		result.Metadata["cache_write_tokens_1h"] = fmt.Sprintf("%d", n)
+	}
+
+	return result, nil
 }
 
 func (c *bedrockClient) parseNovaResponse(body []byte, modelID string) (*GenerationResponse, error) {
@@ -2127,6 +2718,102 @@ func (c *bedrockClient) parseNovaResponse(body []byte, modelID string) (*Generat
 			"family":   "nova",
 		},
 	}, nil
+}
+
+// parseConverseOutput reads a Converse response. It is pure, so the accounting
+// can be asserted in a test from a hand-built ConverseOutput.
+func (c *bedrockClient) parseConverseOutput(output *bedrockruntime.ConverseOutput, modelID, family string) (*GenerationResponse, error) {
+	if output == nil {
+		return nil, fmt.Errorf("empty Converse response")
+	}
+
+	msg, ok := output.Output.(*brtypes.ConverseOutputMemberMessage)
+	if !ok {
+		return nil, fmt.Errorf("unexpected Converse output type %T", output.Output)
+	}
+
+	// Reasoning is read unconditionally, whether or not anyone asked for it: lingo
+	// asks no Converse model to reason (see bedrockNovaOptions.thinkingDimensions),
+	// but a model that reasons on its own terms returns the trace in its own
+	// content block, and a type switch that only knows about text drops it.
+	var text, thinkingText, thinkingSignature, redactedThinking string
+	for _, block := range msg.Value.Content {
+		switch b := block.(type) {
+		case *brtypes.ContentBlockMemberText:
+			text += b.Value
+		case *brtypes.ContentBlockMemberReasoningContent:
+			switch r := b.Value.(type) {
+			case *brtypes.ReasoningContentBlockMemberReasoningText:
+				thinkingText += aws.ToString(r.Value.Text)
+				if s := aws.ToString(r.Value.Signature); s != "" {
+					thinkingSignature = s
+				}
+			case *brtypes.ReasoningContentBlockMemberRedactedContent:
+				// Encrypted by the provider and opaque to the caller. The SDK has
+				// already base64-decoded the blob, so re-encoding is what puts it
+				// back in the form the Claude InvokeModel path records it in.
+				redactedThinking += base64.StdEncoding.EncodeToString(r.Value)
+			}
+		}
+	}
+	if text == "" {
+		return nil, fmt.Errorf("no content in Converse response")
+	}
+
+	// Converse reports cache tokens alongside inputTokens rather than inside it
+	// ("total input tokens = inputTokens + cacheReadInputTokens +
+	// cacheWriteInputTokens"), so withCache folds them into the prompt total.
+	// The response also carries its own totalTokens, but that field already
+	// counts the cache tokens, so summing input and output here is what keeps
+	// withCache from adding them a second time.
+	usage := TokenUsage{}
+	var read, write int
+	if u := output.Usage; u != nil {
+		usage.PromptTokens = int(aws.ToInt32(u.InputTokens))
+		usage.CompletionTokens = int(aws.ToInt32(u.OutputTokens))
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+		read = int(aws.ToInt32(u.CacheReadInputTokens))
+		write = int(aws.ToInt32(u.CacheWriteInputTokens))
+	}
+
+	result := &GenerationResponse{
+		Text:         text,
+		Thinking:     thinkingText,
+		Model:        modelID,
+		FinishReason: string(output.StopReason),
+		// Converse reports no thinking token count at any version this library
+		// has been built against, so ThinkingTokens stays 0 even when a trace
+		// came back.
+		Usage: usage.withCache(read, write, false),
+		Metadata: map[string]string{
+			"provider": "bedrock",
+			"model":    modelID,
+			"family":   family,
+		},
+	}
+
+	// Deprecated: read GenerationResponse.Thinking instead of Metadata["thinking"].
+	if thinkingText != "" {
+		result.Metadata["thinking"] = thinkingText
+	}
+	if thinkingSignature != "" {
+		result.Metadata["thinking_signature"] = thinkingSignature
+	}
+	if redactedThinking != "" {
+		result.Metadata["thinking_redacted"] = redactedThinking
+	}
+
+	// The same per-TTL write split the Claude path records, here delivered as a
+	// typed list rather than two named fields.
+	if output.Usage != nil {
+		for _, d := range output.Usage.CacheDetails {
+			if n := aws.ToInt32(d.InputTokens); n > 0 {
+				result.Metadata["cache_write_tokens_"+string(d.Ttl)] = fmt.Sprintf("%d", n)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func (c *bedrockClient) parseTitanResponse(body []byte, modelID string) (*GenerationResponse, error) {

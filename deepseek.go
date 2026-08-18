@@ -46,10 +46,29 @@ func (c *DeepSeekConfig) rateLimitConfig() *RateLimitConfig { return c.RateLimit
 // thinkingDisabled is the request body value that turns DeepSeek's thinking
 // mode off. Thinking is on by default on every V4 model, so lingo only sends
 // the field when the caller asks for a change.
+//
+// The setters no longer write this into extraFields themselves: they record the
+// intent in ThinkingOptions and the shared client builds the body from it, so a
+// caller's own WithExtraField("thinking", ...) can no longer be clobbered by
+// call order and always wins.
 func thinkingDisabled() map[string]any { return map[string]any{"type": "disabled"} }
 
 // thinkingEnabled restores thinking mode explicitly.
 func thinkingEnabled() map[string]any { return map[string]any{"type": "enabled"} }
+
+// deepSeekThinkingDimensions is what every V4 model honours: a real on/off
+// switch plus a depth, and both a trace and a token count on the way back.
+// DeepSeek has no reasoning-token budget and no way to suppress the trace.
+const deepSeekThinkingDimensions = ThinkingCanToggle | ThinkingCanSetEffort |
+	ThinkingCanReportTokens | ThinkingCanReportTrace
+
+// deepSeekEfforts is DeepSeek's own ladder, and it is neither OpenAI's nor
+// Anthropic's: low, high and max, defaulting to high. Medium and xhigh are
+// accepted but silently folded up to high, so lingo clamps them down to low and
+// high itself -- a downgrade the caller can see in
+// Metadata["thinking_translation"] beats an upgrade nobody was told about.
+// A value WithReasoningEffort pinned is still forwarded exactly as given.
+var deepSeekEfforts = []ThinkingEffort{ThinkingEffortLow, ThinkingEffortHigh, ThinkingEffortMax}
 
 // ============================================================================
 // MODELS
@@ -65,6 +84,9 @@ func (m *DeepSeekV4Flash) ModelName() string {
 }
 func (m *DeepSeekV4Flash) Provider() ProviderType { return ProviderDeepSeek }
 
+func (m *DeepSeekV4Flash) thinkingDimensions() ThinkingDimension { return deepSeekThinkingDimensions }
+func (m *DeepSeekV4Flash) thinkingEfforts() []ThinkingEffort     { return deepSeekEfforts }
+
 func (m *DeepSeekV4Flash) WithVersion(v string) *DeepSeekV4Flash      { m.modelVersion = v; return m }
 func (m *DeepSeekV4Flash) WithMaxTokens(n int) *DeepSeekV4Flash       { m.maxTokens = n; return m }
 func (m *DeepSeekV4Flash) WithTemperature(t float64) *DeepSeekV4Flash { m.temperature = t; return m }
@@ -78,22 +100,24 @@ func (m *DeepSeekV4Flash) WithExtraField(k string, v any) *DeepSeekV4Flash {
 	return m
 }
 
-// WithReasoningEffort sets reasoning_effort (low, medium, high) for thinking mode
+// WithReasoningEffort sets reasoning_effort for thinking mode. DeepSeek's own
+// vocabulary is low, high and max, defaulting to high; medium and xhigh are
+// accepted but folded up to high. The value is forwarded exactly as given.
 func (m *DeepSeekV4Flash) WithReasoningEffort(e string) *DeepSeekV4Flash {
-	m.reasoningEffort = e
+	m.setReasoningEffort(e)
 	return m
 }
 
 // WithThinkingDisabled turns thinking mode off, trading depth for latency
 func (m *DeepSeekV4Flash) WithThinkingDisabled() *DeepSeekV4Flash {
-	m.setExtra("thinking", thinkingDisabled())
+	m.thinking.Disable().pin(ThinkingCanToggle)
 	m.reasoning = false
 	return m
 }
 
 // WithThinkingEnabled turns thinking mode back on explicitly
 func (m *DeepSeekV4Flash) WithThinkingEnabled() *DeepSeekV4Flash {
-	m.setExtra("thinking", thinkingEnabled())
+	m.thinking.Enable().pin(ThinkingCanToggle)
 	m.reasoning = true
 	return m
 }
@@ -113,6 +137,9 @@ func (m *DeepSeekV4Pro) ModelName() string {
 }
 func (m *DeepSeekV4Pro) Provider() ProviderType { return ProviderDeepSeek }
 
+func (m *DeepSeekV4Pro) thinkingDimensions() ThinkingDimension { return deepSeekThinkingDimensions }
+func (m *DeepSeekV4Pro) thinkingEfforts() []ThinkingEffort     { return deepSeekEfforts }
+
 func (m *DeepSeekV4Pro) WithVersion(v string) *DeepSeekV4Pro      { m.modelVersion = v; return m }
 func (m *DeepSeekV4Pro) WithMaxTokens(n int) *DeepSeekV4Pro       { m.maxTokens = n; return m }
 func (m *DeepSeekV4Pro) WithTemperature(t float64) *DeepSeekV4Pro { m.temperature = t; return m }
@@ -123,22 +150,24 @@ func (m *DeepSeekV4Pro) WithExtraField(k string, v any) *DeepSeekV4Pro {
 	return m
 }
 
-// WithReasoningEffort sets reasoning_effort (low, medium, high) for thinking mode
+// WithReasoningEffort sets reasoning_effort for thinking mode. DeepSeek's own
+// vocabulary is low, high and max, defaulting to high; medium and xhigh are
+// accepted but folded up to high. The value is forwarded exactly as given.
 func (m *DeepSeekV4Pro) WithReasoningEffort(e string) *DeepSeekV4Pro {
-	m.reasoningEffort = e
+	m.setReasoningEffort(e)
 	return m
 }
 
 // WithThinkingDisabled turns thinking mode off, trading depth for latency
 func (m *DeepSeekV4Pro) WithThinkingDisabled() *DeepSeekV4Pro {
-	m.setExtra("thinking", thinkingDisabled())
+	m.thinking.Disable().pin(ThinkingCanToggle)
 	m.reasoning = false
 	return m
 }
 
 // WithThinkingEnabled turns thinking mode back on explicitly
 func (m *DeepSeekV4Pro) WithThinkingEnabled() *DeepSeekV4Pro {
-	m.setExtra("thinking", thinkingEnabled())
+	m.thinking.Enable().pin(ThinkingCanToggle)
 	m.reasoning = true
 	return m
 }
@@ -158,12 +187,18 @@ type DeepSeekModel struct {
 func (m *DeepSeekModel) ModelName() string      { return m.modelID }
 func (m *DeepSeekModel) Provider() ProviderType { return ProviderDeepSeek }
 
+// The raw-id escape hatch answers as a V4 model. An older DeepSeek id that
+// never had a thinking mode ignores the object rather than rejecting it, and a
+// value a setter pinned is forwarded whatever the id turns out to be.
+func (m *DeepSeekModel) thinkingDimensions() ThinkingDimension { return deepSeekThinkingDimensions }
+func (m *DeepSeekModel) thinkingEfforts() []ThinkingEffort     { return deepSeekEfforts }
+
 func (m *DeepSeekModel) WithMaxTokens(n int) *DeepSeekModel       { m.maxTokens = n; return m }
 func (m *DeepSeekModel) WithTemperature(t float64) *DeepSeekModel { m.temperature = t; return m }
 func (m *DeepSeekModel) WithTopP(p float64) *DeepSeekModel        { m.topP = p; return m }
 func (m *DeepSeekModel) WithSystemPrompt(s string) *DeepSeekModel { m.systemPrompt = s; return m }
 func (m *DeepSeekModel) WithReasoningEffort(e string) *DeepSeekModel {
-	m.reasoningEffort = e
+	m.setReasoningEffort(e)
 	return m
 }
 func (m *DeepSeekModel) WithExtraField(k string, v any) *DeepSeekModel {
@@ -171,12 +206,12 @@ func (m *DeepSeekModel) WithExtraField(k string, v any) *DeepSeekModel {
 	return m
 }
 func (m *DeepSeekModel) WithThinkingDisabled() *DeepSeekModel {
-	m.setExtra("thinking", thinkingDisabled())
+	m.thinking.Disable().pin(ThinkingCanToggle)
 	m.reasoning = false
 	return m
 }
 func (m *DeepSeekModel) WithThinkingEnabled() *DeepSeekModel {
-	m.setExtra("thinking", thinkingEnabled())
+	m.thinking.Enable().pin(ThinkingCanToggle)
 	m.reasoning = true
 	return m
 }
@@ -215,6 +250,10 @@ func newDeepSeekClient(config *DeepSeekConfig, logger Logger) (Provider, error) 
 		config.Timeout,
 		config.RateLimiter,
 		logger,
+		oaiCacheCaps{}, // DeepSeek caches server-side; there is nothing to request
+		// DeepSeek is the one endpoint in this family that takes both the flat
+		// OpenAI effort and an Anthropic-shaped thinking object of its own.
+		oaiThinkingCaps{flatEffort: true, thinkingObject: true},
 		option.WithAPIKey(config.APIKey),
 		option.WithBaseURL(baseURL),
 	), nil

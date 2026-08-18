@@ -97,6 +97,25 @@ type OpenAICompatibleModel struct {
 func (m *OpenAICompatibleModel) ModelName() string      { return m.modelID }
 func (m *OpenAICompatibleModel) Provider() ProviderType { return ProviderOpenAICompatible }
 
+// The endpoint behind BaseURL decides what thinking means, and there is no
+// catalogue to gate against: Groq, vLLM, LM Studio, llama.cpp and Z.AI accept
+// disjoint sets of fields and local servers commonly reject a body field they
+// do not know outright. So lingo forwards the effort a caller set explicitly
+// and synthesizes nothing -- the nil ladder below means the portable
+// WithThinkingEffort has nothing to clamp to and is dropped, while
+// WithReasoningEffort pins its value and sends it unexamined.
+//
+// This is the opposite call from prompt_cache_key, which is enabled here on the
+// grounds that an unknown-but-harmless routing key is ignored. A thinking field
+// changes what the model generates, so the same argument does not carry.
+// Anything richer belongs behind WithExtraField, which is what reaches vLLM's
+// chat_template_kwargs and Qwen's enable_thinking.
+func (m *OpenAICompatibleModel) thinkingDimensions() ThinkingDimension {
+	return ThinkingCanSetEffort | ThinkingCanReportTokens | ThinkingCanReportTrace
+}
+
+func (m *OpenAICompatibleModel) thinkingEfforts() []ThinkingEffort { return nil }
+
 func (m *OpenAICompatibleModel) WithMaxTokens(n int) *OpenAICompatibleModel {
 	m.maxTokens = n
 	return m
@@ -111,7 +130,7 @@ func (m *OpenAICompatibleModel) WithTemperature(t float64) *OpenAICompatibleMode
 }
 func (m *OpenAICompatibleModel) WithTopP(p float64) *OpenAICompatibleModel { m.topP = p; return m }
 func (m *OpenAICompatibleModel) WithReasoningEffort(e string) *OpenAICompatibleModel {
-	m.reasoningEffort = e
+	m.setReasoningEffort(e)
 	m.reasoning = true
 	return m
 }
@@ -161,6 +180,12 @@ func newOpenAICompatibleClient(config *OpenAICompatibleConfig, logger Logger) (P
 		config.Timeout,
 		config.RateLimiter,
 		logger,
+		// The endpoint speaks the OpenAI dialect by definition, so a cache key
+		// is safe to forward; it is ignored by endpoints that do not model one
+		oaiCacheCaps{promptCacheKey: true},
+		// Only the flat OpenAI-dialect effort, and only when the caller named
+		// it: an unknown endpoint gets no field lingo inferred on its behalf.
+		oaiThinkingCaps{flatEffort: true},
 		opts...,
 	), nil
 }

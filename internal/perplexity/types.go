@@ -172,6 +172,13 @@ type ChatCompletionRequest struct {
 	// FrequencyPenalty penalizes new tokens based on frequency in text (-2 to 2)
 	FrequencyPenalty float64 `json:"frequency_penalty,omitempty"`
 
+	// ReasoningEffort controls how much effort the model spends on reasoning.
+	// The API reference accepts "minimal", "low", "medium" and "high"; it is
+	// announced for sonar-deep-research, where it also drives how many web
+	// searches the model runs, so a higher effort costs more than tokens.
+	// Omitted when empty, which is what every model that does not take it needs.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+
 	// ============================================================================
 	// Web Search Options (Sonar models with web grounding)
 	// ============================================================================
@@ -247,4 +254,11 @@ type Usage struct {
 
 	// TotalTokens is the total number of tokens used
 	TotalTokens int `json:"total_tokens"`
+
+	// ReasoningTokens is the number of tokens used for reasoning, as the API
+	// reference names and describes it. Whether it sits inside CompletionTokens
+	// is not stated anywhere Perplexity documents; lingo reads it as a subset,
+	// because the <think> block it accounts for is part of the message content
+	// and is therefore already counted there.
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }

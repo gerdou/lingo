@@ -2,6 +2,7 @@ package lingo
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -22,8 +23,26 @@ func init() {
 
 // AzureAPIVersionDefault is the api-version lingo sends when the config does
 // not set one. Azure requires an explicit api-version on the deployment
-// routes; override it to opt into newer preview features.
+// routes; it is the newest dated GA version, and the dated line is frozen
+// there. Newer features live on the v1 surface instead.
 const AzureAPIVersionDefault = "2024-10-21"
+
+// AzureAPIVersionV1 selects Azure's next-generation v1 API surface instead of a
+// dated api-version. Set it on AzureOpenAIConfig.APIVersion. The v1 surface is
+// GA, needs no api-version at all, and is the only Azure route that models
+// prompt_cache_key or reports cached_tokens.
+const AzureAPIVersionV1 = "v1"
+
+// AzureAPIVersionV1Preview is the v1 surface with preview features enabled. It
+// routes identically to AzureAPIVersionV1 but pins api-version=preview.
+const AzureAPIVersionV1Preview = "preview"
+
+// azureUsesV1 reports whether an api-version selects the v1 surface. These two
+// values are the only members of Azure's api-version enum for v1; everything
+// else is a dated api-version served from the legacy deployment routes.
+func azureUsesV1(apiVersion string) bool {
+	return apiVersion == AzureAPIVersionV1 || apiVersion == AzureAPIVersionV1Preview
+}
 
 // ============================================================================
 // AZURE OPENAI PROVIDER CONFIG
@@ -51,7 +70,11 @@ type AzureOpenAIConfig struct {
 	// TokenCredentialScopes overrides the default token scopes. Rarely needed;
 	// set it for sovereign clouds.
 	TokenCredentialScopes []string
-	// APIVersion is the api-version query parameter (default: AzureAPIVersionDefault)
+	// APIVersion is the api-version query parameter (default:
+	// AzureAPIVersionDefault). Set AzureAPIVersionV1 to use Azure's v1 API
+	// surface instead, which needs no api-version and is the only route that
+	// accepts a prompt cache key. Entra ID on v1 may need a different token
+	// audience; TokenCredentialScopes is the escape hatch.
 	APIVersion string
 	// Timeout is the request timeout (default: 60s)
 	Timeout time.Duration
@@ -78,6 +101,12 @@ type AzureOpenAIModel struct {
 
 func (m *AzureOpenAIModel) ModelName() string      { return m.deployment }
 func (m *AzureOpenAIModel) Provider() ProviderType { return ProviderAzure }
+
+// A standard chat deployment has no reasoning field: gpt-4o and its siblings
+// reject reasoning_effort, so this type stores thinking configuration like
+// every oaiOptions model and sends none of it.
+func (m *AzureOpenAIModel) thinkingDimensions() ThinkingDimension { return 0 }
+func (m *AzureOpenAIModel) thinkingEfforts() []ThinkingEffort     { return nil }
 
 func (m *AzureOpenAIModel) WithMaxTokens(n int) *AzureOpenAIModel       { m.maxTokens = n; return m }
 func (m *AzureOpenAIModel) WithTemperature(t float64) *AzureOpenAIModel { m.temperature = t; return m }
@@ -107,12 +136,34 @@ type AzureOpenAIReasoningModel struct {
 func (m *AzureOpenAIReasoningModel) ModelName() string      { return m.deployment }
 func (m *AzureOpenAIReasoningModel) Provider() ProviderType { return ProviderAzure }
 
+// Azure rides OpenAI's chat completions params, so the knob is the same one:
+// an effort, no token budget, no toggle, and no trace to hide -- reasoning
+// summaries are a Responses-API feature and Azure's acceptable use policy
+// specifically forbids scraping raw chain of thought by any other route.
+//
+// Deployments are addressed by name, so lingo cannot tell which model is behind
+// one and cannot gate the ladder per model the way it does for first-party
+// OpenAI. The ladder below is the widest one Azure's current reasoning
+// deployments accept; the per-model legality table (gpt-5-pro takes only high,
+// minimal is original-GPT-5 only, o1-mini takes none of it) is the caller's,
+// and WithReasoningEffort forwards their choice unexamined.
+func (m *AzureOpenAIReasoningModel) thinkingDimensions() ThinkingDimension {
+	return ThinkingCanSetEffort | ThinkingCanReportTokens
+}
+
+func (m *AzureOpenAIReasoningModel) thinkingEfforts() []ThinkingEffort {
+	return []ThinkingEffort{
+		ThinkingEffortNone, ThinkingEffortLow, ThinkingEffortMedium,
+		ThinkingEffortHigh, ThinkingEffortXHigh,
+	}
+}
+
 func (m *AzureOpenAIReasoningModel) WithMaxCompletionTokens(n int) *AzureOpenAIReasoningModel {
 	m.maxCompletionTokens = n
 	return m
 }
 func (m *AzureOpenAIReasoningModel) WithReasoningEffort(e string) *AzureOpenAIReasoningModel {
-	m.reasoningEffort = e
+	m.setReasoningEffort(e)
 	return m
 }
 func (m *AzureOpenAIReasoningModel) WithSystemPrompt(s string) *AzureOpenAIReasoningModel {
@@ -153,9 +204,21 @@ func newAzureClient(config *AzureOpenAIConfig, logger Logger) (Provider, error) 
 		apiVersion = AzureAPIVersionDefault
 	}
 
-	// WithEndpoint adds the api-version query parameter and rewrites paths to
-	// /openai/deployments/{deployment}/... using the request's model field
-	opts := []option.RequestOption{azureopenai.WithEndpoint(config.Endpoint, apiVersion)}
+	// The v1 surface keeps the plain OpenAI paths under /openai/v1 and routes by
+	// the body's model field, so azureopenai.WithEndpoint -- which rewrites paths
+	// to /openai/deployments/{deployment}/... and pins a dated api-version -- has
+	// to be bypassed for it. Deployment names still travel in model, so
+	// ModelName() is unchanged either way.
+	var opts []option.RequestOption
+	v1 := azureUsesV1(apiVersion)
+	if v1 {
+		opts = append(opts, option.WithBaseURL(strings.TrimSuffix(config.Endpoint, "/")+"/openai/v1/"))
+		if apiVersion == AzureAPIVersionV1Preview {
+			opts = append(opts, option.WithQueryAdd("api-version", AzureAPIVersionV1Preview))
+		}
+	} else {
+		opts = append(opts, azureopenai.WithEndpoint(config.Endpoint, apiVersion))
+	}
 
 	if config.TokenCredential != nil {
 		var credOpts []azureopenai.TokenCredentialOption
@@ -170,10 +233,22 @@ func newAzureClient(config *AzureOpenAIConfig, logger Logger) (Provider, error) 
 	return newOAICompatClient(
 		ProviderAzure,
 		"Azure OpenAI",
-		"", // Health lists models; Azure maps this to /openai/models
+		"", // Health lists models: /openai/models dated, /openai/v1/models on v1
 		config.Timeout,
 		config.RateLimiter,
 		logger,
+		// prompt_cache_key exists only on Azure's v1 surface -- no dated
+		// api-version, GA or preview, models it, and Azure rejects body fields
+		// its api-version does not know. Dated routes therefore never send it.
+		oaiCacheCaps{promptCacheKey: v1},
+		// reasoning_effort is not gated on the api-version the way
+		// prompt_cache_key is. lingo has always sent it on every route once a
+		// caller asked for it, and Microsoft publishes no minimum api-version
+		// for the field, so gating it now would silently stop sending a
+		// parameter that works for callers today. A deployment whose
+		// api-version does not know the field rejects it, which is the caller's
+		// signal to move to AzureAPIVersionV1.
+		oaiThinkingCaps{flatEffort: true},
 		opts...,
 	), nil
 }

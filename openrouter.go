@@ -61,14 +61,35 @@ func (c *OpenRouterConfig) rateLimitConfig() *RateLimitConfig { return c.RateLim
 type OpenRouterModel struct {
 	oaiOptions
 	modelID string
-	// reasoning and provider are OpenRouter's own request objects, built up
-	// across setter calls and merged into the body as a whole
-	reasoningOpts map[string]any
-	providerOpts  map[string]any
+	// provider is OpenRouter's own routing object, built up across setter calls
+	// and merged into the body as a whole. The reasoning object next to it in
+	// the body is no longer built here: it is derived at request time from the
+	// model's ThinkingOptions, so the portable surface and the three reasoning
+	// setters share one storage and a caller's own WithExtraField("reasoning",
+	// ...) always wins over what lingo derived.
+	providerOpts map[string]any
 }
 
 func (m *OpenRouterModel) ModelName() string      { return m.modelID }
 func (m *OpenRouterModel) Provider() ProviderType { return ProviderOpenRouter }
+
+// OpenRouter is the one endpoint whose native request shape is already the
+// portable one: a single reasoning object carrying a toggle, an effort, a token
+// budget and a trace switch, which OpenRouter normalizes onto whatever the
+// model behind the id actually speaks. So every dimension lingo has is real
+// here, and none of it has to be translated away.
+func (m *OpenRouterModel) thinkingDimensions() ThinkingDimension {
+	return ThinkingCanToggle | ThinkingCanSetEffort | ThinkingCanSetBudget |
+		ThinkingCanHideTrace | ThinkingCanReportTokens | ThinkingCanReportTrace
+}
+
+// thinkingEfforts is OpenRouter's normalized ladder, the widest in the library.
+func (m *OpenRouterModel) thinkingEfforts() []ThinkingEffort {
+	return []ThinkingEffort{
+		ThinkingEffortNone, ThinkingEffortMinimal, ThinkingEffortLow,
+		ThinkingEffortMedium, ThinkingEffortHigh, ThinkingEffortXHigh, ThinkingEffortMax,
+	}
+}
 
 func (m *OpenRouterModel) WithMaxTokens(n int) *OpenRouterModel       { m.maxTokens = n; return m }
 func (m *OpenRouterModel) WithTemperature(t float64) *OpenRouterModel { m.temperature = t; return m }
@@ -77,15 +98,6 @@ func (m *OpenRouterModel) WithSystemPrompt(s string) *OpenRouterModel { m.system
 func (m *OpenRouterModel) WithExtraField(k string, v any) *OpenRouterModel {
 	m.setExtra(k, v)
 	return m
-}
-
-// setReasoning merges a key into the "reasoning" request object
-func (m *OpenRouterModel) setReasoning(key string, value any) {
-	if m.reasoningOpts == nil {
-		m.reasoningOpts = make(map[string]any)
-	}
-	m.reasoningOpts[key] = value
-	m.setExtra("reasoning", m.reasoningOpts)
 }
 
 // setProvider merges a key into the "provider" routing object
@@ -99,23 +111,33 @@ func (m *OpenRouterModel) setProvider(key string, value any) {
 
 // WithReasoningEffort sets reasoning.effort. OpenRouter normalises this
 // across vendors and accepts none, minimal, low, medium, high and xhigh.
+//
+// The value is pinned, so it reaches reasoning.effort exactly as given rather
+// than being clamped to the ladder above.
 func (m *OpenRouterModel) WithReasoningEffort(e string) *OpenRouterModel {
-	m.setReasoning("effort", e)
+	m.setReasoningEffort(e)
 	m.reasoning = e != "none"
 	return m
 }
 
 // WithReasoningMaxTokens caps reasoning.max_tokens for models that budget
 // thinking in tokens rather than effort levels.
+//
+// The value is pinned, so it lands in reasoning.max_tokens exactly as given:
+// never clamped into the 1024-128000 window OpenRouter documents for its
+// Anthropic upstreams, and never read as one of the portable surface's
+// sentinels. This setter has always written its argument into the reasoning
+// object unexamined -- 0, -1 and -4096 included -- and OpenRouter, not lingo,
+// is the one that gets to reject them.
 func (m *OpenRouterModel) WithReasoningMaxTokens(n int) *OpenRouterModel {
-	m.setReasoning("max_tokens", n)
+	m.thinking.setBudgetVerbatim(n)
 	m.reasoning = true
 	return m
 }
 
 // WithReasoningExcluded keeps reasoning on but drops the trace from the response
 func (m *OpenRouterModel) WithReasoningExcluded() *OpenRouterModel {
-	m.setReasoning("exclude", true)
+	m.thinking.WithTrace(ThinkingTraceOmit).pin(ThinkingCanHideTrace)
 	m.reasoning = true
 	return m
 }
@@ -225,6 +247,15 @@ func newOpenRouterClient(config *OpenRouterConfig, logger Logger) (Provider, err
 		config.Timeout,
 		config.RateLimiter,
 		logger,
+		// OpenRouter forwards Anthropic-dialect breakpoints to upstreams that
+		// need them, and accepts prompt_cache_key for the OpenAI-shaped ones
+		oaiCacheCaps{promptCacheKey: true, contentCacheControl: true},
+		// The provider that gets every flag on: its reasoning object carries
+		// the effort, the budget and the trace switch in one place, so the flat
+		// OpenAI-dialect field must stay off to avoid sending both spellings.
+		// The window is the one OpenRouter documents for Anthropic upstreams,
+		// the narrowest of the vendors it normalizes.
+		oaiThinkingCaps{reasoningObject: true, budget: budgetRange{min: 1024, max: 128000}},
 		opts...,
 	), nil
 }

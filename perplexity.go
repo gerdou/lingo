@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gerdou/lingo/internal/perplexity"
@@ -55,6 +56,67 @@ type perplexityOptions struct {
 	returnImages           bool
 	returnRelatedQuestions bool
 	responseFormat         map[string]any // JSON Schema for structured outputs
+	thinking               ThinkingOptions
+}
+
+// perplexityOpts exposes the embedded option set to the client.
+func (o *perplexityOptions) perplexityOpts() *perplexityOptions { return o }
+
+// ThinkingOptions returns the model's thinking configuration. Every Perplexity
+// model embeds perplexityOptions, so this one declaration makes them all satisfy
+// ThinkingModel -- including plain Sonar, which carries the configuration and
+// sends none of it. The wire gate is thinkingDimensions, not the accessor.
+//
+// Perplexity has no thinking setters of its own, so this is the only surface:
+// there is nothing here for it to disagree with.
+func (o *perplexityOptions) ThinkingOptions() *ThinkingOptions { return &o.thinking }
+
+// thinkingDimensions answers for the Sonar models that neither reason nor
+// report reasoning. The reasoning models override it per type.
+func (o *perplexityOptions) thinkingDimensions() ThinkingDimension { return 0 }
+
+// perplexityModel is implemented by every model routed through the Perplexity
+// client.
+type perplexityModel interface {
+	Model
+	perplexityOpts() *perplexityOptions
+}
+
+// Perplexity's reasoning models emit their trace inline in the answer as a
+// <think> block and report a reasoning token count, whether or not anything was
+// asked for. Only sonar-deep-research documents a request-side knob.
+const (
+	// perplexityReasoningDims is what a reasoning model reports back.
+	perplexityReasoningDims = ThinkingCanReportTokens | ThinkingCanReportTrace
+	// perplexityDeepResearchDims adds the one request-side knob Perplexity
+	// documents. There is no toggle -- a reasoning model always reasons -- and
+	// no token budget, so NoThinking and a neutral budget are no-ops here.
+	perplexityDeepResearchDims = ThinkingCanSetEffort | perplexityReasoningDims
+)
+
+// perplexityEfforts is the ladder the API reference accepts for
+// reasoning_effort. It has no "none": there is no off switch to spell.
+var perplexityEfforts = []ThinkingEffort{
+	ThinkingEffortMinimal,
+	ThinkingEffortLow,
+	ThinkingEffortMedium,
+	ThinkingEffortHigh,
+}
+
+// perplexityThinkingDimensions resolves a raw model id, so a model addressed by
+// id answers the same as the named type would. An id lingo does not recognise
+// takes no thinking instruction: reasoning_effort is documented for one model,
+// and forwarding it blind to an unknown one is the risk the never-error rule
+// exists to avoid.
+func perplexityThinkingDimensions(modelID string) ThinkingDimension {
+	switch {
+	case strings.HasPrefix(modelID, "sonar-deep-research"):
+		return perplexityDeepResearchDims
+	case strings.HasPrefix(modelID, "sonar-reasoning"):
+		return perplexityReasoningDims
+	default:
+		return 0
+	}
 }
 
 // ============================================================================
@@ -137,6 +199,10 @@ func (m *SonarReasoning) ModelName() string      { return "sonar-reasoning" }
 func (m *SonarReasoning) Provider() ProviderType { return ProviderPerplexity }
 func (m *SonarReasoning) SystemPrompt() string   { return m.systemPrompt }
 
+func (m *SonarReasoning) thinkingDimensions() ThinkingDimension {
+	return perplexityReasoningDims
+}
+
 func (m *SonarReasoning) WithMaxTokens(n int) *SonarReasoning       { m.maxTokens = n; return m }
 func (m *SonarReasoning) WithTemperature(t float64) *SonarReasoning { m.temperature = t; return m }
 func (m *SonarReasoning) WithTopP(p float64) *SonarReasoning        { m.topP = p; return m }
@@ -177,6 +243,10 @@ type SonarReasoningPro struct{ perplexityOptions }
 func (m *SonarReasoningPro) ModelName() string      { return "sonar-reasoning-pro" }
 func (m *SonarReasoningPro) Provider() ProviderType { return ProviderPerplexity }
 func (m *SonarReasoningPro) SystemPrompt() string   { return m.systemPrompt }
+
+func (m *SonarReasoningPro) thinkingDimensions() ThinkingDimension {
+	return perplexityReasoningDims
+}
 
 func (m *SonarReasoningPro) WithMaxTokens(n int) *SonarReasoningPro { m.maxTokens = n; return m }
 func (m *SonarReasoningPro) WithTemperature(t float64) *SonarReasoningPro {
@@ -222,6 +292,13 @@ type SonarDeepResearch struct{ perplexityOptions }
 func (m *SonarDeepResearch) ModelName() string      { return "sonar-deep-research" }
 func (m *SonarDeepResearch) Provider() ProviderType { return ProviderPerplexity }
 func (m *SonarDeepResearch) SystemPrompt() string   { return m.systemPrompt }
+
+// thinkingDimensions reports the one request-side knob Perplexity documents.
+// Note that effort here buys web searches as well as reasoning tokens, so the
+// cost of raising it is not visible in TokenUsage.
+func (m *SonarDeepResearch) thinkingDimensions() ThinkingDimension {
+	return perplexityDeepResearchDims
+}
 
 func (m *SonarDeepResearch) WithMaxTokens(n int) *SonarDeepResearch { m.maxTokens = n; return m }
 func (m *SonarDeepResearch) WithTemperature(t float64) *SonarDeepResearch {
@@ -272,6 +349,12 @@ func (m *PerplexityModel) ModelName() string      { return m.modelID }
 func (m *PerplexityModel) Provider() ProviderType { return ProviderPerplexity }
 func (m *PerplexityModel) SystemPrompt() string   { return m.systemPrompt }
 
+// thinkingDimensions resolves the raw model id, so a model addressed by id
+// answers the same as the named type would.
+func (m *PerplexityModel) thinkingDimensions() ThinkingDimension {
+	return perplexityThinkingDimensions(m.modelID)
+}
+
 func (m *PerplexityModel) WithMaxTokens(n int) *PerplexityModel       { m.maxTokens = n; return m }
 func (m *PerplexityModel) WithTemperature(t float64) *PerplexityModel { m.temperature = t; return m }
 func (m *PerplexityModel) WithTopP(p float64) *PerplexityModel        { m.topP = p; return m }
@@ -302,6 +385,16 @@ func (m *PerplexityModel) WithResponseFormat(schema map[string]any) *PerplexityM
 func NewPerplexityModel(modelID string) *PerplexityModel {
 	return &PerplexityModel{modelID: modelID, perplexityOptions: perplexityOptions{maxTokens: 8192, temperature: 0.2}}
 }
+
+// Compile-time check that every Perplexity model routes through the client
+var (
+	_ perplexityModel = (*Sonar)(nil)
+	_ perplexityModel = (*SonarPro)(nil)
+	_ perplexityModel = (*SonarReasoning)(nil)
+	_ perplexityModel = (*SonarReasoningPro)(nil)
+	_ perplexityModel = (*SonarDeepResearch)(nil)
+	_ perplexityModel = (*PerplexityModel)(nil)
+)
 
 // ============================================================================
 // PERPLEXITY PROVIDER CLIENT
@@ -376,180 +469,58 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		Messages: messages,
 	}
 
-	// Apply options based on model type
-	switch m := model.(type) {
-	case *Sonar:
-		if m.maxTokens > 0 {
-			req.MaxTokens = m.maxTokens
+	// Apply options through the one accessor every Perplexity model shares.
+	// This used to be a six-case type switch of identical blocks, one per
+	// concrete type, which is how a new option becomes six new copies.
+	if pm, ok := model.(perplexityModel); ok {
+		o := pm.perplexityOpts()
+		if o.maxTokens > 0 {
+			req.MaxTokens = o.maxTokens
 		}
-		if m.temperature > 0 {
-			req.Temperature = &m.temperature
+		if o.temperature > 0 {
+			req.Temperature = &o.temperature
 		}
-		if m.topP > 0 {
-			req.TopP = &m.topP
+		if o.topP > 0 {
+			req.TopP = &o.topP
 		}
-		if m.topK > 0 {
-			req.TopK = m.topK
+		if o.topK > 0 {
+			req.TopK = o.topK
 		}
-		if m.searchRecencyFilter != "" {
-			req.SearchRecencyFilter = m.searchRecencyFilter
+		if o.searchRecencyFilter != "" {
+			req.SearchRecencyFilter = o.searchRecencyFilter
 		}
-		if len(m.searchDomainFilter) > 0 {
-			req.SearchDomainFilter = m.searchDomainFilter
+		if len(o.searchDomainFilter) > 0 {
+			req.SearchDomainFilter = o.searchDomainFilter
 		}
-		req.ReturnImages = m.returnImages
-		req.ReturnRelatedQuestions = m.returnRelatedQuestions
-		if len(m.responseFormat) > 0 {
+		req.ReturnImages = o.returnImages
+		req.ReturnRelatedQuestions = o.returnRelatedQuestions
+		if len(o.responseFormat) > 0 {
 			req.ResponseFormat = &perplexity.ResponseFormat{
 				Type:       "json_schema",
-				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
+				JSONSchema: &perplexity.JSONSchemaSpec{Schema: o.responseFormat},
 			}
 		}
+	}
 
-	case *SonarPro:
-		if m.maxTokens > 0 {
-			req.MaxTokens = m.maxTokens
-		}
-		if m.temperature > 0 {
-			req.Temperature = &m.temperature
-		}
-		if m.topP > 0 {
-			req.TopP = &m.topP
-		}
-		if m.topK > 0 {
-			req.TopK = m.topK
-		}
-		if m.searchRecencyFilter != "" {
-			req.SearchRecencyFilter = m.searchRecencyFilter
-		}
-		if len(m.searchDomainFilter) > 0 {
-			req.SearchDomainFilter = m.searchDomainFilter
-		}
-		req.ReturnImages = m.returnImages
-		req.ReturnRelatedQuestions = m.returnRelatedQuestions
-		if len(m.responseFormat) > 0 {
-			req.ResponseFormat = &perplexity.ResponseFormat{
-				Type:       "json_schema",
-				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
-			}
-		}
-
-	case *SonarReasoning:
-		if m.maxTokens > 0 {
-			req.MaxTokens = m.maxTokens
-		}
-		if m.temperature > 0 {
-			req.Temperature = &m.temperature
-		}
-		if m.topP > 0 {
-			req.TopP = &m.topP
-		}
-		if m.topK > 0 {
-			req.TopK = m.topK
-		}
-		if m.searchRecencyFilter != "" {
-			req.SearchRecencyFilter = m.searchRecencyFilter
-		}
-		if len(m.searchDomainFilter) > 0 {
-			req.SearchDomainFilter = m.searchDomainFilter
-		}
-		req.ReturnImages = m.returnImages
-		req.ReturnRelatedQuestions = m.returnRelatedQuestions
-		if len(m.responseFormat) > 0 {
-			req.ResponseFormat = &perplexity.ResponseFormat{
-				Type:       "json_schema",
-				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
-			}
-		}
-
-	case *SonarReasoningPro:
-		if m.maxTokens > 0 {
-			req.MaxTokens = m.maxTokens
-		}
-		if m.temperature > 0 {
-			req.Temperature = &m.temperature
-		}
-		if m.topP > 0 {
-			req.TopP = &m.topP
-		}
-		if m.topK > 0 {
-			req.TopK = m.topK
-		}
-		if m.searchRecencyFilter != "" {
-			req.SearchRecencyFilter = m.searchRecencyFilter
-		}
-		if len(m.searchDomainFilter) > 0 {
-			req.SearchDomainFilter = m.searchDomainFilter
-		}
-		req.ReturnImages = m.returnImages
-		req.ReturnRelatedQuestions = m.returnRelatedQuestions
-		if len(m.responseFormat) > 0 {
-			req.ResponseFormat = &perplexity.ResponseFormat{
-				Type:       "json_schema",
-				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
-			}
-		}
-
-	case *SonarDeepResearch:
-		if m.maxTokens > 0 {
-			req.MaxTokens = m.maxTokens
-		}
-		if m.temperature > 0 {
-			req.Temperature = &m.temperature
-		}
-		if m.topP > 0 {
-			req.TopP = &m.topP
-		}
-		if m.topK > 0 {
-			req.TopK = m.topK
-		}
-		if m.searchRecencyFilter != "" {
-			req.SearchRecencyFilter = m.searchRecencyFilter
-		}
-		if len(m.searchDomainFilter) > 0 {
-			req.SearchDomainFilter = m.searchDomainFilter
-		}
-		req.ReturnImages = m.returnImages
-		req.ReturnRelatedQuestions = m.returnRelatedQuestions
-		if len(m.responseFormat) > 0 {
-			req.ResponseFormat = &perplexity.ResponseFormat{
-				Type:       "json_schema",
-				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
-			}
-		}
-
-	case *PerplexityModel:
-		if m.maxTokens > 0 {
-			req.MaxTokens = m.maxTokens
-		}
-		if m.temperature > 0 {
-			req.Temperature = &m.temperature
-		}
-		if m.topP > 0 {
-			req.TopP = &m.topP
-		}
-		if m.topK > 0 {
-			req.TopK = m.topK
-		}
-		if m.searchRecencyFilter != "" {
-			req.SearchRecencyFilter = m.searchRecencyFilter
-		}
-		if len(m.searchDomainFilter) > 0 {
-			req.SearchDomainFilter = m.searchDomainFilter
-		}
-		req.ReturnImages = m.returnImages
-		req.ReturnRelatedQuestions = m.returnRelatedQuestions
-		if len(m.responseFormat) > 0 {
-			req.ResponseFormat = &perplexity.ResponseFormat{
-				Type:       "json_schema",
-				JSONSchema: &perplexity.JSONSchemaSpec{Schema: m.responseFormat},
-			}
-		}
+	// Thinking is opt-in and applied once, outside the per-model switch above,
+	// because every Perplexity model reaches it through the same accessor. A
+	// model whose ThinkingOptions were never touched produces a zero plan and
+	// leaves reasoning_effort empty, which is the field omitted.
+	//
+	// Perplexity has no toggle and no token budget, so a neutral budget is
+	// projected onto the effort ladder and NoThinking is a documented no-op:
+	// a reasoning model always reasons.
+	plan := planThinking(modelThinkingOptions(model), ModelThinkingDimensions(model),
+		budgetRange{}, perplexityEfforts...)
+	if plan.effort != "" {
+		req.ReasoningEffort = string(plan.effort)
 	}
 
 	c.logger.Debug().
 		Str("model", model.ModelName()).
 		Int("message_count", len(messages)).
+		Str("reasoning_effort", req.ReasoningEffort).
+		Str("thinking_translation", plan.translation()).
 		Msg("Making Perplexity API request")
 
 	// Make request with rate limit handling
@@ -574,21 +545,46 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 
 	choice := resp.Choices[0]
 
+	// Perplexity's reasoning models prefix the answer with their trace instead
+	// of returning it in a field of its own, so the two are separated here.
+	text, thinking := splitPerplexityThinking(choice.Message.Content)
+
 	// Build response
 	response := &GenerationResponse{
-		Text:         choice.Message.Content,
+		Text:         text,
+		Thinking:     thinking,
 		Model:        resp.Model,
 		FinishReason: choice.FinishReason,
+		// The reasoning count is read as a subset of the completion total: the
+		// <think> block it accounts for is part of the message content and is
+		// therefore already counted there. Perplexity does not state the
+		// relationship, so treat this as inferred rather than documented.
 		Usage: TokenUsage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
-		},
+		}.withThinking(resp.Usage.ReasoningTokens, true),
 		Metadata: map[string]string{
 			"provider": "perplexity",
 			"model":    resp.Model,
 			"id":       resp.ID,
 		},
+	}
+
+	// The trace has a typed home in GenerationResponse.Thinking; the metadata
+	// key mirrors the one the other providers write, so a caller reading across
+	// providers sees the same key during the deprecation window.
+	//
+	// Deprecated: read GenerationResponse.Thinking instead of
+	// Metadata["reasoning_content"].
+	if thinking != "" {
+		response.Metadata["reasoning_content"] = thinking
+	}
+
+	// Whatever lingo had to translate or drop to fit the caller's request onto
+	// this model's dialect, so a silent adaptation is never invisible.
+	if s := plan.translation(); s != "" {
+		response.Metadata["thinking_translation"] = s
 	}
 
 	// Add citations to metadata if present
@@ -619,6 +615,32 @@ func (c *perplexityClient) Generate(ctx context.Context, model Model, prompt str
 		Msg("Perplexity generation completed")
 
 	return response, nil
+}
+
+// splitPerplexityThinking separates the reasoning trace a Perplexity reasoning
+// model prefixes its answer with from the answer itself.
+//
+// sonar-reasoning, sonar-reasoning-pro and sonar-deep-research emit
+// "<think>...</think>" ahead of the content, including ahead of a structured
+// output, which lingo's own doc comments have long warned about and never
+// handled -- so until now the trace was returned to callers as part of the
+// answer. Only a leading block is split, and only when it is closed: anything
+// else is returned untouched, so a non-reasoning answer that happens to mention
+// the tag is never mangled.
+func splitPerplexityThinking(content string) (text, thinking string) {
+	const openTag, closeTag = "<think>", "</think>"
+
+	trimmed := strings.TrimLeft(content, " \t\r\n")
+	if !strings.HasPrefix(trimmed, openTag) {
+		return content, ""
+	}
+	end := strings.Index(trimmed, closeTag)
+	if end < 0 {
+		return content, ""
+	}
+	thinking = strings.TrimSpace(trimmed[len(openTag):end])
+	text = strings.TrimLeft(trimmed[end+len(closeTag):], " \t\r\n")
+	return text, thinking
 }
 
 // Search performs a web search using Perplexity's Search API
